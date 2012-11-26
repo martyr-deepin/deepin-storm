@@ -110,8 +110,8 @@ class FetchFile(object):
 if __name__ == "__main__":
     # 1c14e2d8828a45d9d660781cd820e6e1
     FetchFile(
-        "ftp://ftp.sjtu.edu.cn/ubuntu-cd/quantal/wubi.exe",
-        # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
+        # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/quantal/wubi.exe",
+        "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
         # "http://cdimage.linuxdeepin.com/daily-live/desktop/20121124/deepin-desktop-amd64.iso",
         # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
         "./deepin-desktop-adm64.iso",

@@ -55,6 +55,7 @@ class FetchHttp(object):
     def download_piece(self, buffer_size, (begin, end), file_save_path, update_callback):
         download_finish = False
         retries = 1
+        remaining = end - begin + 1
         while not download_finish:
             if retries > 10:
                 break
@@ -66,13 +67,15 @@ class FetchHttp(object):
                 save_file = open("%s_%s" % (file_save_path, begin), "ab")
                 
                 while True:
-                    data = conn.read(buffer_size)
+                    read_size = min(buffer_size, remaining)
+                    data = conn.read(read_size)
                     
                     if not data:
                         break
                     
                     save_file.write(data)
                     data_len = len(data)
+                    remaining -= data_len
                     update_callback(data_len)
                     
                 save_file.close()
