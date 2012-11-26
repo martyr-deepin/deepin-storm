@@ -84,6 +84,10 @@ class FetchFile(object):
         
         if self.file_size > 0:
             self.downloaded_size = 0
+            
+            print self.file_size
+            print self.get_piece_ranges()
+            
             download_piece_jobs = [gevent.spawn(self.fetch.download_piece, 
                                                 self.buffer_size, 
                                                 download_range,
@@ -101,11 +105,13 @@ class FetchFile(object):
     def update(self, data_len):        
         self.downloaded_size += data_len
         print self.downloaded_size / float(self.file_size) * 100
+        # print (self.downloaded_size, self.file_size)
 
 if __name__ == "__main__":
+    # 1c14e2d8828a45d9d660781cd820e6e1
     FetchFile(
-        # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/quantal/ubuntu-12.10-wubi-i386.tar.xz",
-        "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
+        "ftp://ftp.sjtu.edu.cn/ubuntu-cd/quantal/wubi.exe",
+        # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
         # "http://cdimage.linuxdeepin.com/daily-live/desktop/20121124/deepin-desktop-amd64.iso",
         # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
         "./deepin-desktop-adm64.iso",

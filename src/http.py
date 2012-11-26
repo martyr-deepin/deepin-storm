@@ -43,42 +43,43 @@ class FetchHttp(object):
     def get_file_size(self):
         try:
             conn = urllib2.urlopen(self.file_url)
-            return int(conn.info().getheaders("Content-Length")[0])
+            size = int(conn.info().getheaders("Content-Length")[0])
+            conn.close()
+            return size
         except Exception, e:
             print "get_file_size got error: %s" % e
             traceback.print_exc(file=sys.stdout)
             
             return 0
         
-    def download_piece(self, buffer_size, (start, end), file_save_path, update_callback):
+    def download_piece(self, buffer_size, (begin, end), file_save_path, update_callback):
         download_finish = False
         retries = 1
-        current_pos = start
         while not download_finish:
             if retries > 10:
                 break
             
             try:
                 request = urllib2.Request(self.file_url)
-                request.add_header("Range", "bytes=%d-%d" % (start, end))
+                request.add_header("Range", "bytes=%d-%d" % (begin, end))
                 conn = urllib2.urlopen(request)
-                data = conn.read(buffer_size)
-                save_file = open("%s_%s" % (file_save_path, start), "ab")
-                while data:
-                    save_file.write(data)
-                    
-                    data_len = len(data)
-                    current_pos += data_len
-                    update_callback(data_len)
-                    
+                save_file = open("%s_%s" % (file_save_path, begin), "ab")
+                
+                while True:
                     data = conn.read(buffer_size)
                     
-                if save_file and not save_file.closed:
-                    save_file.close()
+                    if not data:
+                        break
                     
+                    save_file.write(data)
+                    data_len = len(data)
+                    update_callback(data_len)
+                    
+                save_file.close()
+                conn.close()    
                 download_finish = True    
             except Exception, e:
-                print "Retries: %s: %s (%s)" % (start, retries, e)
+                print "Retries: %s: %s (%s)" % (begin, retries, e)
                 traceback.print_exc(file=sys.stdout)
                 
                 retries += 1
