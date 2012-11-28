@@ -241,7 +241,7 @@ class TestThread(td.Thread):
             "http://cdimage.linuxdeepin.com/daily-live/desktop/20121124/deepin-desktop-amd64.iso",
             # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
             # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
-            "./deepin-desktop-adm64.iso",
+            "/tmp/deepin-desktop-adm64.iso",
             )
         self.plot.add_axes("total")
         fetch_file.signal.register_event("start_greenlet", lambda greenlet_id: self.plot.add_axes(greenlet_id))
