@@ -22,8 +22,6 @@
 
 import gtk
 import md5
-import sys
-import traceback
 import math
 from matplotlib.backends.backend_gtk import FigureCanvasGTK as FigureCanvas
 from matplotlib.figure import Figure
@@ -32,9 +30,11 @@ def hex_to_color(r, g, b):
     return math.floor(float(r * 0.2999 + g * 0.587 + b * 0.114) / 256)
 
 def get_id_color(axes_id):
-    color_hex_string = md5.new(str(axes_id)).hexdigest()[0:12]
+    color_hex_string = md5.new(str(axes_id)).hexdigest()[0:24]
     (r_str, g_str, b_str) = color_hex_string[0:4], color_hex_string[4:8], color_hex_string[8:12]
-    return "#%02X%02X%02X" % (int(r_str, 16) / 255, int(g_str, 16) / 255, int(b_str, 16) / 255)
+    r, g, b = int(r_str, 16) / 255, int(g_str, 16) / 255, int(b_str, 16) / 255
+    
+    return "#%02X%02X%02X" % (r, g, b)
 
 class Plot(object):
     '''
@@ -61,7 +61,8 @@ class Plot(object):
         
     def add_axes(self, axes_id):    
         ax = self.figure.add_subplot(111)
-        ax.set_ylim([0, 500])
+        ax.set_ylim([0, 600])
+        ax.grid(True)
         
         self.axes_dict[axes_id] = {
             "axes" : ax,
@@ -86,6 +87,7 @@ class Plot(object):
                     axes_info["y_values"],
                     color=axes_info["axes_color"],
                     label=str(axes_id),
+                    lw=2,
                     )
                 
                 try:
@@ -96,9 +98,8 @@ class Plot(object):
                     else:
                         xlim = [0, lim_length + 1]
                     ax.set_xlim(xlim)
-                except Exception, e:
-                    print "function expose got error: %s" % e
-                    traceback.print_exc(file=sys.stdout)
+                except:
+                    pass
                 
             self.figure.canvas.draw()
                 

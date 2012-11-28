@@ -39,6 +39,8 @@ STATUS_WAITING = 0
 STATUS_DOWNLOADING = 1
 STATUS_FINISH = 2
 
+REALTIME_DELAY = 1              # seconds
+
 class FetchFile(object):
     '''
     class docs
@@ -48,7 +50,7 @@ class FetchFile(object):
                  file_url,
                  file_save_path,
                  file_hash_info=None,
-                 concurrent_num=10,
+                 concurrent_num=5,
                  buffer_size=8192, # in byte
                  min_split_size=20480, # in byte
                  ):
@@ -104,7 +106,9 @@ class FetchFile(object):
                 "update_time" : current_time,
                 "remain_time" : -1,
                 "average_speed" : -1,
-                "realtime_speed" : -1
+                "realtime_speed" : -1,
+                "realtime_time" : current_time,
+                "realtime_size" : 0,
                 }
             
             piece_ranges = self.get_piece_ranges()
@@ -121,13 +125,14 @@ class FetchFile(object):
                     "start_time" : -1,           # start time
                     "update_time" : -1,          # udpate time
                     "average_speed" : -1,        # average speed
+                    "remain_time" : -1,          # remain time
                     "realtime_speed" : -1,       # realtime speed
-                    "remain_time" : -1           # remain time
+                    "realtime_time" : -1,        # realtime time
+                    "realtime_size" : 0,         # realtime size
                     }
                 self.greenlet_dict[begin] = greenlet
             
             self.pool = Pool(self.concurrent_num)
-            # self.pool = Pool(3)
             [self.pool.start(greenlet) for greenlet in self.greenlet_dict.values()]
             self.pool.join()
             
@@ -144,16 +149,20 @@ class FetchFile(object):
         greenlet = self.greenlet_dict[begin]
         current_time = time.time()
         remain_size = greenlet.info["remain_size"] - data_len
-        realtime_speed = data_len / (current_time - greenlet.info["update_time"])
         average_speed = (greenlet.info["range_size"] - remain_size) / (current_time - greenlet.info["start_time"])
         
         greenlet.info["remain_size"] = remain_size
         greenlet.info["update_time"] = current_time
         greenlet.info["average_speed"] = average_speed
-        greenlet.info["realtime_speed"] = realtime_speed
         greenlet.info["remain_time"] = remain_size / average_speed
+        greenlet.info["realtime_size"] += data_len
         
-        self.signal.emit("update_greenlet", greenlet.info)
+        if current_time - greenlet.info["realtime_time"] >= REALTIME_DELAY:
+            greenlet.info["realtime_speed"] = greenlet.info["realtime_size"] / (current_time - greenlet.info["realtime_time"])
+            greenlet.info["realtime_time"] = current_time
+            greenlet.info["realtime_size"] = 0
+        
+            self.signal.emit("update_greenlet", greenlet.info)
         
     def update(self, (begin, end)):
         self.signal.emit("start_greenlet", begin)
@@ -165,6 +174,8 @@ class FetchFile(object):
         greenlet.info["remain_size"] = end - begin
         greenlet.info["start_time"] = current_time
         greenlet.info["update_time"] = current_time
+        greenlet.info["realtime_time"] = current_time
+        greenlet.info["realtime_size"] = 0
         
         filepath = "%s_%s" % (self.file_save_path, begin)
         
@@ -179,11 +190,16 @@ class FetchFile(object):
             
             current_time = time.time()
             self.update_info["average_speed"] = self.update_info["downloaded_size"] / (current_time - self.update_info["start_time"])
-            self.update_info["realtime_speed"] = data_len / (current_time - self.update_info["update_time"])
             self.update_info["update_time"] = current_time
             self.update_info["remain_time"] = (self.file_size - self.update_info["downloaded_size"]) / self.update_info["average_speed"]            
+            self.update_info["realtime_size"] += data_len
             
-            self.signal.emit("update", self.update_info)
+            if current_time - greenlet.info["realtime_time"] >= REALTIME_DELAY:
+                self.update_info["realtime_speed"] = self.update_info["realtime_size"] / (current_time - greenlet.info["realtime_time"])
+                self.update_info["realtime_time"] = current_time
+                self.update_info["realtime_size"] = 0
+            
+                self.signal.emit("update", self.update_info)
             
             self.update_greenlet(begin, data)
             
@@ -210,11 +226,10 @@ from threads import post_gui
 
 @post_gui
 def update_greenlet_plot(plot, value):
-    plot.update(value["id"], value["update_time"], value["average_speed"])
+    plot.update(value["id"], value["update_time"], value["realtime_speed"])
     
 @post_gui
 def update_plot(plot, value):
-    # print divmod(int(value["remain_time"]), 60)
     plot.update("total", value["update_time"], value["average_speed"])
     
 import threading as td
@@ -238,8 +253,8 @@ class TestThread(td.Thread):
             # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/quantal/wubi.exe",
             # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
             # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb",
-            "http://cdimage.linuxdeepin.com/daily-live/desktop/20121124/deepin-desktop-amd64.iso",
-            # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
+            # "http://cdimage.linuxdeepin.com/daily-live/desktop/20121124/deepin-desktop-amd64.iso",
+            "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
             # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
             "/tmp/deepin-desktop-adm64.iso",
             )
