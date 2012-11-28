@@ -52,35 +52,33 @@ class FetchHttp(object):
             
             return 0
         
-    def download_piece(self, buffer_size, (begin, end), file_save_path, update_callback):
-        download_finish = False
+    def download_piece(self, buffer_size, begin, end, update_callback):
+        # Init.
         retries = 1
         remaining = end - begin + 1
-        while not download_finish:
+        
+        # Connection.
+        request = urllib2.Request(self.file_url)
+        request.add_header("Range", "bytes=%d-%d" % (begin, end))
+        conn = urllib2.urlopen(request)
+        
+        # Start download.
+        while True:
             if retries > 10:
                 break
             
             try:
-                request = urllib2.Request(self.file_url)
-                request.add_header("Range", "bytes=%d-%d" % (begin, end))
-                conn = urllib2.urlopen(request)
-                save_file = open("%s_%s" % (file_save_path, begin), "ab")
+                read_size = min(buffer_size, remaining)
+                if read_size <= 0:
+                    break
                 
-                while True:
-                    read_size = min(buffer_size, remaining)
-                    data = conn.read(read_size)
-                    
-                    if not data:
-                        break
-                    
-                    save_file.write(data)
-                    data_len = len(data)
-                    remaining -= data_len
-                    update_callback(data_len)
-                    
-                save_file.close()
-                conn.close()    
-                download_finish = True    
+                data = conn.read(read_size)
+                if not data:
+                    break
+                
+                remaining -= len(data)
+                update_callback(begin, data)
+                retries = 1
             except Exception, e:
                 print "Retries: %s: %s (%s)" % (begin, retries, e)
                 traceback.print_exc(file=sys.stdout)
@@ -89,5 +87,5 @@ class FetchHttp(object):
                 gevent.sleep(1)
                 continue
             
-            
-
+        # Clean work.
+        conn.close()    
