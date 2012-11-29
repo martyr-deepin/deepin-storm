@@ -25,12 +25,14 @@ from gevent import monkey, Greenlet
 from gevent.pool import Pool
 monkey.patch_all()
 
+import commands
 from events import EventRegister
 import urlparse
 import time
 from http import FetchHttp
 from ftp import FetchFtp
 import os
+from utils import remove_file, create_directory
 
 STATUS_WAITING = 0
 STATUS_DOWNLOADING = 1
@@ -45,7 +47,8 @@ class FetchFile(object):
 	
     def __init__(self,
                  file_url,
-                 file_save_path,
+                 file_save_dir=None,
+                 file_save_name=None,
                  file_hash_info=None,
                  concurrent_num=5,
                  buffer_size=8192, # in byte
@@ -55,8 +58,23 @@ class FetchFile(object):
         init docs
         '''
         self.file_url = file_url
-        self.file_save_path = file_save_path
-        (self.file_save_dir, self.file_name) = os.path.split(file_save_path)
+        
+        if file_save_dir == None:
+            try:
+                self.file_save_dir = commands.getoutput("xdg-user-dir DOWNLOAD")
+            except:
+                self.file_save_dir = "/tmp"
+        else:
+            self.file_save_dir = file_save_dir
+            
+        if file_save_name == None:
+            self.file_save_name = os.path.split(file_url)[1]
+        else:
+            self.file_save_name = file_save_name
+            
+        self.file_save_dir = os.path.join(self.file_save_dir, "%s_tmp" % self.file_save_name)
+        self.file_save_path = os.path.join(self.file_save_dir, self.file_save_name)    
+        
         self.concurrent_num = concurrent_num
         self.file_hash_info = file_hash_info
         self.buffer_size = buffer_size
@@ -97,6 +115,8 @@ class FetchFile(object):
         self.file_size = self.fetch.get_file_size()
         
         if self.file_size > 0:
+            create_directory(self.file_save_dir)
+            
             current_time = time.time()
             self.update_info = {
                 "file_size" : self.file_size,
@@ -208,7 +228,6 @@ class FetchFile(object):
         
         filepath = "%s_%s" % (self.file_save_path, begin)
         
-        from dtk.ui.utils import remove_file
         remove_file(filepath)
         save_file = open(filepath, "ab")
         
@@ -242,82 +261,9 @@ class FetchFile(object):
         
         return begin
     
-def unzip(unzip_list):
-    '''
-    Unzip [(1, 'a'), (2, 'b'), (3, 'c')] to ([1, 2, 3], ['a', 'b', 'c']).
-    
-    @param unzip_list: List to unzip.
-    @return: Return new unzip list.
-    '''
-    return tuple(map(list, zip(*unzip_list))) 
-
-from threads import post_gui
-
-@post_gui
-def update_greenlet_plot(plot, value):
-    plot.update(value["id"], value["update_time"], value["realtime_speed"])
-    
-@post_gui
-def update_plot(plot, value):
-    plot.update("total", value["update_time"], value["average_speed"])
-    
-import threading as td
-
-class TestThread(td.Thread):
-    '''
-    class docs
-    '''
-	
-    def __init__(self, plot):
-        '''
-        init docs
-        '''
-        td.Thread.__init__(self)
-        self.setDaemon(True)    # make thread exit when main program exit
-        
-        self.plot = plot
-
-    def run(self):
-        fetch_file = FetchFile(
-            # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/quantal/wubi.exe",
-            # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
-            # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb",
-            # "http://cdimage.linuxdeepin.com/daily-live/desktop/20121124/deepin-desktop-amd64.iso",
-            "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
-            # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
-            "/tmp/deepin-desktop-adm64.iso",
-            )
-        fetch_file.signal.register_event("start", lambda axes_id, greenlet_info: self.plot.add_axes(axes_id, greenlet_info))
-        fetch_file.signal.register_event("start_greenlet", lambda axes_id, greenlet_info: self.plot.add_axes(axes_id, greenlet_info))
-        fetch_file.signal.register_event("update_greenlet", lambda v: update_greenlet_plot(self.plot, v))
-        fetch_file.signal.register_event("update", lambda v: update_plot(self.plot, v))
-        fetch_file.start()
-    
 if __name__ == "__main__":
     FetchFile(
         "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
-        "/tmp/deepin-desktop-adm64.iso",
+        "/tmp",
         ).start()
     
-    # import sys
-    # import gobject
-    # import gevent
-    # import gtk
-    # gtk.gdk.threads_init()
-    
-    # from plot import Plot
-    # plot = Plot()
-    
-    # TestThread(plot).start()
-    
-    # def idle():
-    #     try:
-    #         gevent.sleep(0.01)
-    #     except:
-    #         gtk.main_quit()
-    #         gevent.hub.MAIN.throw(*sys.exc_info())
-    #     return True
-    
-    # gobject.idle_add(idle)
-    
-    # plot.run()

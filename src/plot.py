@@ -112,3 +112,68 @@ class Plot(object):
     def run(self):
         self.window.show_all()
         gtk.main()
+
+if __name__ == "__main__":
+    from threads import post_gui
+    from download import FetchFile
+    import threading as td
+    import sys
+    import gobject
+    import gevent
+    
+    @post_gui
+    def update_greenlet_plot(plot, value):
+        plot.update(value["id"], value["update_time"], value["realtime_speed"])
+        
+    @post_gui
+    def update_plot(plot, value):
+        plot.update("total", value["update_time"], value["average_speed"])
+    
+    class TestThread(td.Thread):
+        '''
+        class docs
+        '''
+    	
+        def __init__(self, plot):
+            '''
+            init docs
+            '''
+            td.Thread.__init__(self)
+            self.setDaemon(True)    # make thread exit when main program exit
+            
+            self.plot = plot
+    
+        def run(self):
+            fetch_file = FetchFile(
+                # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/quantal/wubi.exe",
+                # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
+                # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb",
+                # "http://cdimage.linuxdeepin.com/daily-live/desktop/20121124/deepin-desktop-amd64.iso",
+                "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
+                # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
+                "/tmp/deepin-desktop-adm64.iso",
+                )
+            fetch_file.signal.register_event("start", lambda axes_id, greenlet_info: self.plot.add_axes(axes_id, greenlet_info))
+            fetch_file.signal.register_event("start_greenlet", lambda axes_id, greenlet_info: self.plot.add_axes(axes_id, greenlet_info))
+            fetch_file.signal.register_event("update_greenlet", lambda v: update_greenlet_plot(self.plot, v))
+            fetch_file.signal.register_event("update", lambda v: update_plot(self.plot, v))
+            fetch_file.start()
+    
+    gtk.gdk.threads_init()
+    
+    plot = Plot()
+    
+    TestThread(plot).start()
+    
+    def idle():
+        try:
+            gevent.sleep(0.01)
+        except:
+            gtk.main_quit()
+            gevent.hub.MAIN.throw(*sys.exc_info())
+        return True
+    
+    gobject.idle_add(idle)
+    
+    plot.run()
+
