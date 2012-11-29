@@ -26,13 +26,14 @@ from gevent.pool import Pool
 monkey.patch_all()
 
 import commands
+import subprocess
 from events import EventRegister
 import urlparse
 import time
 from http import FetchHttp
 from ftp import FetchFtp
 import os
-from utils import remove_file, create_directory
+from utils import remove_file, create_directory, get_hash
 
 STATUS_WAITING = 0
 STATUS_DOWNLOADING = 1
@@ -97,7 +98,6 @@ class FetchFile(object):
             return [(0, self.file_size - 1)]
         else:
             split_num = self.concurrent_num
-            # split_num = 20
             if self.file_size < self.min_split_size * split_num:
                 split_size = self.min_split_size
             else:
@@ -117,10 +117,12 @@ class FetchFile(object):
         if self.file_size > 0:
             create_directory(self.file_save_dir)
             
+            (download_pieces, downloaded_size) = self.get_download_pieces()
+            
             current_time = time.time()
             self.update_info = {
                 "file_size" : self.file_size,
-                "downloaded_size" : 0,
+                "downloaded_size" : downloaded_size,
                 "start_time" : current_time,
                 "update_time" : current_time,
                 "remain_time" : -1,
@@ -130,22 +132,68 @@ class FetchFile(object):
                 "realtime_size" : 0,
                 }
             
+            
             self.signal.emit("start", "total", self.update_info)
             
-            piece_ranges = self.get_piece_ranges()
+            # piece_ranges = self.get_piece_ranges()
             
             self.greenlet_dict = {}
-            for (begin, end) in piece_ranges:
+            # for (begin, end) in piece_ranges:
+            for (begin, end) in download_pieces:
                 self.create_greenlet(begin, end)
                 
+            
             self.pool = Pool(self.concurrent_num)
-            # self.pool = Pool(3)
             [self.pool.start(greenlet) for greenlet in self.greenlet_dict.values()]
             self.pool.join()
             
             print "Finish download, spend seconds: %s." % (self.update_info["update_time"] - self.update_info["start_time"])
+            
+            offset_ids = sorted(map(lambda greenlet: int(greenlet.info["id"]), self.greenlet_dict.values()))    
+            command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.file_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
+            subprocess.Popen(command, shell=True).wait()
+            
+            print get_hash(self.file_save_path, "md5")
         else:
             print "File size of %s is 0" % (self.file_url)
+            
+    def get_download_pieces(self):
+        if os.path.exists(self.file_save_dir):
+            downloaded_size = 0
+            downloaded_pieces = []
+            for download_file in os.listdir(self.file_save_dir):
+                try:
+                    (file_name, file_offset_part) = download_file.rsplit("_", 1)
+                    file_offset = int(file_offset_part)
+                    if (file_name == self.file_save_name 
+                        and 0 <= file_offset <= self.file_size):
+                        file_size = os.stat(os.path.join(self.file_save_dir, download_file)).st_size
+                        if file_size > 0:
+                            downloaded_size += file_size
+                            downloaded_pieces.append((file_offset, file_offset + file_size - 1))
+                except:
+                    pass
+                
+            if len(downloaded_pieces) == 0:
+                return (self.get_piece_ranges(), 0)
+            else:
+                downloaded_pieces = sorted(downloaded_pieces, key=lambda (start, end): start)    
+                
+                need_download_pieces = []
+                download_tag = 0
+                for (piece_index, (start, end)) in enumerate(downloaded_pieces):
+                    if start != download_tag:
+                        need_download_pieces.append((download_tag + 1, start - 1))
+                        
+                    download_tag = end
+                    
+                    if piece_index == len(downloaded_pieces) - 1:
+                        if download_tag != self.file_size:
+                            need_download_pieces.append((download_tag + 1, self.file_size - 1))
+                        
+                return (need_download_pieces, downloaded_size)
+        else:
+            return (self.get_piece_ranges(), 0)
             
     def create_greenlet(self, begin, end):
         greenlet = Greenlet(self.update, (begin, end)) # greenlet
@@ -263,7 +311,13 @@ class FetchFile(object):
     
 if __name__ == "__main__":
     FetchFile(
-        "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
+        # a97d345324a1d673da8a34609767a3f7
+        # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
+        
+        # 0040ce164aae959c36e37febaac1ce80
+        "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb", 
+        
+        # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
         "/tmp",
         ).start()
     

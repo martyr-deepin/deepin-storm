@@ -21,6 +21,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import hashlib
 
 def remove_file(path):
     '''
@@ -68,3 +69,16 @@ def unzip(unzip_list):
     '''
     return tuple(map(list, zip(*unzip_list))) 
 
+def check_hash(path, hash_type, hash_value):
+    '''Check hash value.'''
+    return get_hash(path, hash_type) == hash_value
+
+def get_hash(path, hash_type):
+    hash_fun = hashlib.new(hash_type)
+    with open(path) as f:
+        while 1:
+            bytes = f.read(4096)
+            if not bytes:
+                break
+            hash_fun.update(bytes)
+    return hash_fun.hexdigest()
