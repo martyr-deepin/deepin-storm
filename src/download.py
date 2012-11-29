@@ -152,6 +152,9 @@ class FetchFile(object):
             command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.file_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
             subprocess.Popen(command, shell=True).wait()
             
+            for offset_id in offset_ids:
+                remove_file("%s_%s" % (self.file_save_path, offset_id))
+            
             if self.file_hash_info != None:
                 (expect_hash_type, expect_hash_value) = self.file_hash_info
                 hash_value = get_hash(self.file_save_path, expect_hash_type)
