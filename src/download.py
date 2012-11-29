@@ -117,12 +117,10 @@ class FetchFile(object):
         if self.file_size > 0:
             create_directory(self.file_save_dir)
             
-            (download_pieces, downloaded_size) = self.get_download_pieces()
+            (downloaded_pieces, download_pieces, downloaded_size) = self.get_download_pieces()
             
             if downloaded_size == self.file_size:
                 print "No need download"
-                
-                offset_ids = map(lambda (start, end): start, download_pieces)
             else:
                 current_time = time.time()
                 self.update_info = {
@@ -150,8 +148,7 @@ class FetchFile(object):
                 
                 print "Finish download, spend seconds: %s." % (self.update_info["update_time"] - self.update_info["start_time"])
                 
-                offset_ids = sorted(map(lambda greenlet: int(greenlet.info["id"]), self.greenlet_dict.values()))    
-                
+            offset_ids = sorted(map(lambda (start, end): start, downloaded_pieces + download_pieces))
             command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.file_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
             subprocess.Popen(command, shell=True).wait()
             
@@ -177,12 +174,12 @@ class FetchFile(object):
                     pass
                 
             downloaded_pieces = sorted(downloaded_pieces, key=lambda (start, end): start)    
-                
+            
             if len(downloaded_pieces) == 0:
-                return (self.get_piece_ranges(), 0)
+                return ([], self.get_piece_ranges(), 0)
             else:
                 if self.piece_is_complete(downloaded_pieces):
-                    return (downloaded_pieces, self.file_size)
+                    return ([], downloaded_pieces, self.file_size)
                 else:
                     need_download_pieces = []
                     download_tag = 0
@@ -196,9 +193,9 @@ class FetchFile(object):
                             if download_tag != self.file_size:
                                 need_download_pieces.append((download_tag + 1, self.file_size - 1))
                             
-                    return (need_download_pieces, downloaded_size)
+                    return (downloaded_pieces, need_download_pieces, downloaded_size)
         else:
-            return (self.get_piece_ranges(), 0)
+            return ([], self.get_piece_ranges(), 0)
         
     def piece_is_complete(self, pieces):
         if pieces[0][0] != 0:
