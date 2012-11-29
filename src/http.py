@@ -42,7 +42,7 @@ class FetchHttp(object):
         
     def get_file_size(self):
         try:
-            conn = urllib2.urlopen(self.file_url)
+            conn = urllib2.urlopen(self.file_url, timeout=10)
             size = int(conn.info().getheaders("Content-Length")[0])
             conn.close()
             return size
@@ -60,7 +60,7 @@ class FetchHttp(object):
         # Connection.
         request = urllib2.Request(self.file_url)
         request.add_header("Range", "bytes=%d-%d" % (begin, end))
-        conn = urllib2.urlopen(request)
+        conn = urllib2.urlopen(request, timeout=10)
         
         # Start download.
         while True:
