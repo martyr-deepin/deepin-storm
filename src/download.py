@@ -119,37 +119,39 @@ class FetchFile(object):
             
             (download_pieces, downloaded_size) = self.get_download_pieces()
             
-            current_time = time.time()
-            self.update_info = {
-                "file_size" : self.file_size,
-                "downloaded_size" : downloaded_size,
-                "start_time" : current_time,
-                "update_time" : current_time,
-                "remain_time" : -1,
-                "average_speed" : -1,
-                "realtime_speed" : -1,
-                "realtime_time" : current_time,
-                "realtime_size" : 0,
-                }
-            
-            
-            self.signal.emit("start", "total", self.update_info)
-            
-            # piece_ranges = self.get_piece_ranges()
-            
-            self.greenlet_dict = {}
-            # for (begin, end) in piece_ranges:
-            for (begin, end) in download_pieces:
-                self.create_greenlet(begin, end)
+            if downloaded_size == self.file_size:
+                print "No need download"
                 
-            
-            self.pool = Pool(self.concurrent_num)
-            [self.pool.start(greenlet) for greenlet in self.greenlet_dict.values()]
-            self.pool.join()
-            
-            print "Finish download, spend seconds: %s." % (self.update_info["update_time"] - self.update_info["start_time"])
-            
-            offset_ids = sorted(map(lambda greenlet: int(greenlet.info["id"]), self.greenlet_dict.values()))    
+                offset_ids = map(lambda (start, end): start, download_pieces)
+            else:
+                current_time = time.time()
+                self.update_info = {
+                    "file_size" : self.file_size,
+                    "downloaded_size" : downloaded_size,
+                    "start_time" : current_time,
+                    "update_time" : current_time,
+                    "remain_time" : -1,
+                    "average_speed" : -1,
+                    "realtime_speed" : -1,
+                    "realtime_time" : current_time,
+                    "realtime_size" : 0,
+                    }
+                
+                
+                self.signal.emit("start", "total", self.update_info)
+                
+                self.greenlet_dict = {}
+                for (begin, end) in download_pieces:
+                    self.create_greenlet(begin, end)
+                    
+                self.pool = Pool(self.concurrent_num)
+                [self.pool.start(greenlet) for greenlet in self.greenlet_dict.values()]
+                self.pool.join()
+                
+                print "Finish download, spend seconds: %s." % (self.update_info["update_time"] - self.update_info["start_time"])
+                
+                offset_ids = sorted(map(lambda greenlet: int(greenlet.info["id"]), self.greenlet_dict.values()))    
+                
             command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.file_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
             subprocess.Popen(command, shell=True).wait()
             
@@ -174,26 +176,43 @@ class FetchFile(object):
                 except:
                     pass
                 
+            downloaded_pieces = sorted(downloaded_pieces, key=lambda (start, end): start)    
+                
             if len(downloaded_pieces) == 0:
                 return (self.get_piece_ranges(), 0)
             else:
-                downloaded_pieces = sorted(downloaded_pieces, key=lambda (start, end): start)    
-                
-                need_download_pieces = []
-                download_tag = 0
-                for (piece_index, (start, end)) in enumerate(downloaded_pieces):
-                    if start != download_tag:
-                        need_download_pieces.append((download_tag + 1, start - 1))
+                if self.piece_is_complete(downloaded_pieces):
+                    return (downloaded_pieces, self.file_size)
+                else:
+                    need_download_pieces = []
+                    download_tag = 0
+                    for (piece_index, (start, end)) in enumerate(downloaded_pieces):
+                        if start != download_tag:
+                            need_download_pieces.append((download_tag + 1, start - 1))
+                            
+                        download_tag = end
                         
-                    download_tag = end
-                    
-                    if piece_index == len(downloaded_pieces) - 1:
-                        if download_tag != self.file_size:
-                            need_download_pieces.append((download_tag + 1, self.file_size - 1))
-                        
-                return (need_download_pieces, downloaded_size)
+                        if piece_index == len(downloaded_pieces) - 1:
+                            if download_tag != self.file_size:
+                                need_download_pieces.append((download_tag + 1, self.file_size - 1))
+                            
+                    return (need_download_pieces, downloaded_size)
         else:
             return (self.get_piece_ranges(), 0)
+        
+    def piece_is_complete(self, pieces):
+        if pieces[0][0] != 0:
+            return False
+        
+        if pieces[-1][1] != self.file_size - 1:
+            return False
+        
+        for (index, (start, end)) in enumerate(pieces):
+            if index != 0:
+                if start != pieces[index - 1][1] + 1:
+                    return False
+            
+        return True
             
     def create_greenlet(self, begin, end):
         greenlet = Greenlet(self.update, (begin, end)) # greenlet
