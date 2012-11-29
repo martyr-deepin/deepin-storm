@@ -21,7 +21,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Import gevent module before any other modules.
-from gevent import monkey
+from gevent import monkey, GreenletExit
 monkey.patch_all()
 
 from ftplib import FTP
@@ -74,16 +74,20 @@ class FetchFtp(object):
         conn = ftp.transfercmd("RETR %s" % url[2])
         
         while True:
-            read_size = min(buffer_size, remaining)
-            if read_size <= 0:
+            try:
+                read_size = min(buffer_size, remaining)
+                if read_size <= 0:
+                    break
+                        
+                data = conn.recv(read_size)
+                if not data:
+                    break
+                
+                remaining -= len(data)
+                update_callback(begin, data)
+            except GreenletExit:
+                # Drop received data when greenlet killed.
                 break
-                    
-            data = conn.recv(read_size)
-            if not data:
-                break
-            
-            remaining -= len(data)
-            update_callback(begin, data)
             
         # Clean work.
         conn.close()    

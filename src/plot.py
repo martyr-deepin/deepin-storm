@@ -30,7 +30,7 @@ def hex_to_color(r, g, b):
     return math.floor(float(r * 0.2999 + g * 0.587 + b * 0.114) / 256)
 
 def get_id_color(axes_id):
-    color_hex_string = md5.new(str(axes_id)).hexdigest()[0:24]
+    color_hex_string = md5.new(str(axes_id)).hexdigest()[0:12]
     (r_str, g_str, b_str) = color_hex_string[0:4], color_hex_string[4:8], color_hex_string[8:12]
     r, g, b = int(r_str, 16) / 255, int(g_str, 16) / 255, int(b_str, 16) / 255
     
@@ -59,16 +59,17 @@ class Plot(object):
         
         gtk.timeout_add(200, self.expose)
         
-    def add_axes(self, axes_id):    
+    def add_axes(self, axes_id, greenlet_info):    
         ax = self.figure.add_subplot(111)
-        ax.set_ylim([0, 600])
+        ax.set_ylim([-1, 601])
         ax.grid(True)
+        ax.set_yticks(range(0, 601, 50))
         
         self.axes_dict[axes_id] = {
             "axes" : ax,
             "axes_color" : get_id_color(axes_id),
-            "x_values" : [],
-            "y_values" : [],
+            "x_values" : [greenlet_info["update_time"]],
+            "y_values" : [0],
             }
         
     def update(self, axes_id, x, y):
@@ -94,10 +95,11 @@ class Plot(object):
                     lim_length = 10
                     if len(axes_info["x_values"]) > 0:
                         current_time = int(axes_info["x_values"][-1])
-                        xlim = [max(0, current_time - lim_length), current_time + 1]
+                        xlim = [(max(0, current_time - lim_length), current_time + 1)]
                     else:
-                        xlim = [0, lim_length + 1]
+                        xlim = [(0, lim_length + 1)]
                     ax.set_xlim(xlim)
+                    ax.set_xticks(range(xlim[0], xlim[1], 1))
                 except:
                     pass
                 

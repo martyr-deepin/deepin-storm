@@ -22,7 +22,7 @@
 
 # Import gevent module before any other modules.
 import gevent
-from gevent import monkey
+from gevent import monkey, GreenletExit
 monkey.patch_all()
 
 import urllib2
@@ -73,12 +73,16 @@ class FetchHttp(object):
                     break
                 
                 data = conn.read(read_size)
+                
                 if not data:
                     break
                 
                 remaining -= len(data)
                 update_callback(begin, data)
                 retries = 1
+            except GreenletExit:
+                # Drop received data when greenlet killed.
+                break
             except Exception, e:
                 print "Retries: %s: %s (%s)" % (begin, retries, e)
                 traceback.print_exc(file=sys.stdout)

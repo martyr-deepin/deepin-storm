@@ -21,15 +21,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Import gevent module before any other modules.
-import gevent
 from gevent import monkey, Greenlet
 from gevent.pool import Pool
 monkey.patch_all()
 
 from events import EventRegister
 import urlparse
-import sys
-import gobject
 import time
 from http import FetchHttp
 from ftp import FetchFtp
@@ -81,16 +78,18 @@ class FetchFile(object):
         if self.file_size < self.min_split_size:
             return [(0, self.file_size - 1)]
         else:
-            if self.file_size < self.min_split_size * self.concurrent_num:
+            split_num = self.concurrent_num
+            # split_num = 20
+            if self.file_size < self.min_split_size * split_num:
                 split_size = self.min_split_size
             else:
-                split_size = self.file_size / self.concurrent_num
+                split_size = self.file_size / split_num
                 
             ranges = []
-            for index in xrange(self.concurrent_num - 1):
+            for index in xrange(split_num - 1):
                 ranges.append(((index * split_size), (index + 1) * split_size - 1))
                 
-            ranges.append(((self.concurrent_num - 1) * split_size, self.file_size - 1))
+            ranges.append(((split_num - 1) * split_size, self.file_size - 1))
             
             return ranges
         
@@ -111,38 +110,68 @@ class FetchFile(object):
                 "realtime_size" : 0,
                 }
             
+            self.signal.emit("start", "total", self.update_info)
+            
             piece_ranges = self.get_piece_ranges()
             
             self.greenlet_dict = {}
             for (begin, end) in piece_ranges:
-                greenlet = Greenlet(self.update, (begin, end)) # greenlet
-                greenlet.link(self.finish)
-                greenlet.info = {
-                    "id" : begin,
-                    "status" : STATUS_WAITING,   # status
-                    "range_size" : end - begin,  # range size
-                    "remain_size" : end - begin, # remain size
-                    "start_time" : -1,           # start time
-                    "update_time" : -1,          # udpate time
-                    "average_speed" : -1,        # average speed
-                    "remain_time" : -1,          # remain time
-                    "realtime_speed" : -1,       # realtime speed
-                    "realtime_time" : -1,        # realtime time
-                    "realtime_size" : 0,         # realtime size
-                    }
-                self.greenlet_dict[begin] = greenlet
-            
+                self.create_greenlet(begin, end)
+                
             self.pool = Pool(self.concurrent_num)
+            # self.pool = Pool(3)
             [self.pool.start(greenlet) for greenlet in self.greenlet_dict.values()]
             self.pool.join()
             
-            print "Finish download."
+            print "Finish download, spend seconds: %s." % (self.update_info["update_time"] - self.update_info["start_time"])
         else:
             print "File size of %s is 0" % (self.file_url)
             
+    def create_greenlet(self, begin, end):
+        greenlet = Greenlet(self.update, (begin, end)) # greenlet
+        greenlet.link(self.finish)
+        greenlet.info = {
+            "id" : begin,
+            "status" : STATUS_WAITING,   # status
+            "range_size" : end - begin,  # range size
+            "remain_size" : end - begin, # remain size
+            "start_time" : -1,           # start time
+            "update_time" : -1,          # udpate time
+            "average_speed" : -1,        # average speed
+            "remain_time" : -1,          # remain time
+            "realtime_speed" : -1,       # realtime speed
+            "realtime_time" : -1,        # realtime time
+            "realtime_size" : 0,         # realtime size
+            }
+        self.greenlet_dict[begin] = greenlet
+        
+        return greenlet
+            
     def finish(self, greenlet):
-        print "Finish: %s" % greenlet.info["id"]
-        print self.pool.wait_available()
+        # Mark download completed.
+        greenlet.info["status"] = STATUS_FINISH
+        
+    def helper_other_greenlet(self):    
+        '''
+        I found use below code in function `finish` will make download slower.
+        '''
+        # Try help other greenlet.
+        status_list = map(lambda greenlet: (greenlet.info["status"], greenlet), self.greenlet_dict.values())    
+        downloading_infos = filter(lambda (status, greenlet): status == STATUS_DOWNLOADING, status_list)
+        waiting_infos = filter(lambda (status, greenlet): status == STATUS_WAITING, status_list)
+        
+        if len(downloading_infos) > 0 and self.concurrent_num - len(downloading_infos) > len(waiting_infos):
+            slowest_greenlet = sorted(downloading_infos, key=lambda (status, greenlet): int(greenlet.info["remain_time"]), reverse=True)[0][1]
+            if slowest_greenlet.info["remain_time"] > 5:
+                slowest_greenlet.kill()
+                
+                info = slowest_greenlet.info
+                remain_begin = info["id"] + info["range_size"] - info["remain_size"]
+                remain_split = remain_begin + int(info["remain_size"] / 2)
+                remain_end = remain_begin + info["remain_size"] 
+                
+                self.pool.start(self.create_greenlet(remain_begin, remain_split))
+                self.pool.start(self.create_greenlet(remain_split + 1, remain_end))
         
     def update_greenlet(self, begin, data):
         data_len = len(data)
@@ -163,10 +192,8 @@ class FetchFile(object):
             greenlet.info["realtime_size"] = 0
         
             self.signal.emit("update_greenlet", greenlet.info)
-        
+            
     def update(self, (begin, end)):
-        self.signal.emit("start_greenlet", begin)
-        
         current_time = time.time()
         greenlet = self.greenlet_dict[begin]
         greenlet.info["status"] = STATUS_DOWNLOADING
@@ -176,6 +203,8 @@ class FetchFile(object):
         greenlet.info["update_time"] = current_time
         greenlet.info["realtime_time"] = current_time
         greenlet.info["realtime_size"] = 0
+        
+        self.signal.emit("start_greenlet", begin, greenlet.info)
         
         filepath = "%s_%s" % (self.file_save_path, begin)
         
@@ -258,33 +287,37 @@ class TestThread(td.Thread):
             # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
             "/tmp/deepin-desktop-adm64.iso",
             )
-        self.plot.add_axes("total")
-        fetch_file.signal.register_event("start_greenlet", lambda greenlet_id: self.plot.add_axes(greenlet_id))
+        fetch_file.signal.register_event("start", lambda axes_id, greenlet_info: self.plot.add_axes(axes_id, greenlet_info))
+        fetch_file.signal.register_event("start_greenlet", lambda axes_id, greenlet_info: self.plot.add_axes(axes_id, greenlet_info))
         fetch_file.signal.register_event("update_greenlet", lambda v: update_greenlet_plot(self.plot, v))
         fetch_file.signal.register_event("update", lambda v: update_plot(self.plot, v))
         fetch_file.start()
     
 if __name__ == "__main__":
-    # FetchFile(
-    #     "http://cdimage.linuxdeepin.com/daily-live/desktop/20121124/deepin-desktop-amd64.iso",
-    #     "./deepin-desktop-amd64.iso").start()
+    FetchFile(
+        "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
+        "/tmp/deepin-desktop-adm64.iso",
+        ).start()
     
-    import gtk
-    gtk.gdk.threads_init()
+    # import sys
+    # import gobject
+    # import gevent
+    # import gtk
+    # gtk.gdk.threads_init()
     
-    from plot import Plot
-    plot = Plot()
+    # from plot import Plot
+    # plot = Plot()
     
-    TestThread(plot).start()
+    # TestThread(plot).start()
     
-    def idle():
-        try:
-            gevent.sleep(0.01)
-        except:
-            gtk.main_quit()
-            gevent.hub.MAIN.throw(*sys.exc_info())
-        return True
+    # def idle():
+    #     try:
+    #         gevent.sleep(0.01)
+    #     except:
+    #         gtk.main_quit()
+    #         gevent.hub.MAIN.throw(*sys.exc_info())
+    #     return True
     
-    gobject.idle_add(idle)
+    # gobject.idle_add(idle)
     
-    plot.run()
+    # plot.run()
