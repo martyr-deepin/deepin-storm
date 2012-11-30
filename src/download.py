@@ -146,7 +146,8 @@ class FetchFile(object):
                 [self.pool.start(greenlet) for greenlet in self.greenlet_dict.values()]
                 self.pool.join()
                 
-                print "Finish download, spend seconds: %s." % (self.update_info["update_time"] - self.update_info["start_time"])
+                print "Finish download, spend seconds: %s (%s)." % (self.update_info["update_time"] - self.update_info["start_time"], 
+                                                                    self.update_info["average_speed"])
                 
             offset_ids = sorted(map(lambda (start, end): start, downloaded_pieces + download_pieces))
             command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.file_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
@@ -337,15 +338,16 @@ class FetchFile(object):
         return begin
     
 if __name__ == "__main__":
-    FetchFile(
+    fetch_file = FetchFile(
         # a97d345324a1d673da8a34609767a3f7
-        # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
+        "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
         
         # 0040ce164aae959c36e37febaac1ce80
         # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb", 
         
         # ff7f64c2d829c2a180b6b04ff19b1289
-        "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
+        # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
         "/tmp",
-        ).start()
-    
+        )
+
+    fetch_file.start()
