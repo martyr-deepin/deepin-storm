@@ -33,7 +33,7 @@ import time
 from http import FetchHttp
 from ftp import FetchFtp
 import os
-from utils import remove_file, create_directory, get_hash
+from utils import remove_file, create_directory, get_hash, remove_directory
 
 STATUS_WAITING = 0
 STATUS_DOWNLOADING = 1
@@ -73,8 +73,10 @@ class FetchFile(object):
         else:
             self.file_save_name = file_save_name
             
-        self.file_save_dir = os.path.join(self.file_save_dir, "%s_tmp" % self.file_save_name)
         self.file_save_path = os.path.join(self.file_save_dir, self.file_save_name)    
+            
+        self.temp_save_dir = os.path.join(self.file_save_dir, "%s_tmp" % self.file_save_name)
+        self.temp_save_path = os.path.join(self.temp_save_dir, self.file_save_name)    
         
         self.concurrent_num = concurrent_num
         self.file_hash_info = file_hash_info
@@ -115,7 +117,7 @@ class FetchFile(object):
         self.file_size = self.fetch.get_file_size()
         
         if self.file_size > 0:
-            create_directory(self.file_save_dir)
+            create_directory(self.temp_save_dir)
             
             (downloaded_pieces, download_pieces, downloaded_size) = self.get_download_pieces()
             
@@ -147,14 +149,13 @@ class FetchFile(object):
                 self.pool.join()
                 
                 print "Finish download, spend seconds: %s (%s)." % (self.update_info["update_time"] - self.update_info["start_time"], 
-                                                                    self.update_info["average_speed"])
+                                                                    self.update_info["average_speed"] / 1024)
                 
             offset_ids = sorted(map(lambda (start, end): start, downloaded_pieces + download_pieces))
-            command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.file_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
+            command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.temp_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
             subprocess.Popen(command, shell=True).wait()
             
-            for offset_id in offset_ids:
-                remove_file("%s_%s" % (self.file_save_path, offset_id))
+            remove_directory(self.temp_save_dir)
             
             if self.file_hash_info != None:
                 (expect_hash_type, expect_hash_value) = self.file_hash_info
@@ -169,16 +170,16 @@ class FetchFile(object):
             print "File size of %s is 0" % (self.file_url)
             
     def get_download_pieces(self):
-        if os.path.exists(self.file_save_dir):
+        if os.path.exists(self.temp_save_dir):
             downloaded_size = 0
             downloaded_pieces = []
-            for download_file in os.listdir(self.file_save_dir):
+            for download_file in os.listdir(self.temp_save_dir):
                 try:
                     (file_name, file_offset_part) = download_file.rsplit("_", 1)
                     file_offset = int(file_offset_part)
                     if (file_name == self.file_save_name 
                         and 0 <= file_offset <= self.file_size):
-                        file_size = os.stat(os.path.join(self.file_save_dir, download_file)).st_size
+                        file_size = os.stat(os.path.join(self.temp_save_dir, download_file)).st_size
                         if file_size > 0:
                             downloaded_size += file_size
                             downloaded_pieces.append((file_offset, file_offset + file_size - 1))
@@ -302,7 +303,7 @@ class FetchFile(object):
         
         self.signal.emit("start_greenlet", begin, greenlet.info)
         
-        filepath = "%s_%s" % (self.file_save_path, begin)
+        filepath = "%s_%s" % (self.temp_save_path, begin)
         
         remove_file(filepath)
         save_file = open(filepath, "ab")
@@ -340,10 +341,10 @@ class FetchFile(object):
 if __name__ == "__main__":
     fetch_file = FetchFile(
         # a97d345324a1d673da8a34609767a3f7
-        "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
+        # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
         
         # 0040ce164aae959c36e37febaac1ce80
-        # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb", 
+        "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb", 
         
         # ff7f64c2d829c2a180b6b04ff19b1289
         # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
