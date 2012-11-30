@@ -21,8 +21,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Import gevent module before any other modules.
+import gevent
 from gevent import monkey, Greenlet
 from gevent.pool import Pool
+from gevent.queue import Queue
 monkey.patch_all()
 
 import commands
@@ -87,6 +89,9 @@ class FetchFile(object):
         self.update_greenlet_callbacks = []
         
         self.signal = EventRegister()
+        
+        self.stop_flag = False
+        self.pause_flag = False
         
     def init_file_size(self):    
         self.file_size = self.fetch.get_file_size()
@@ -154,23 +159,41 @@ class FetchFile(object):
                 print "Finish download, spend seconds: %s (%s)." % (self.update_info["update_time"] - self.update_info["start_time"], 
                                                                     self.update_info["average_speed"] / 1024)
                 
-            offset_ids = sorted(map(lambda (start, end): start, downloaded_pieces + download_pieces))
-            command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.temp_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
-            subprocess.Popen(command, shell=True).wait()
-            
-            remove_directory(self.temp_save_dir)
-            
-            if self.file_hash_info != None:
-                (expect_hash_type, expect_hash_value) = self.file_hash_info
-                hash_value = get_hash(self.file_save_path, expect_hash_type)
-                if hash_value != expect_hash_value:
-                    print "%s is not match expect hash: %s" % (hash_value, expect_hash_value)
+            if not self.stop_flag:    
+                offset_ids = sorted(map(lambda (start, end): start, downloaded_pieces + download_pieces))
+                command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.temp_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
+                subprocess.Popen(command, shell=True).wait()
+                
+                remove_directory(self.temp_save_dir)
+                
+                if self.file_hash_info != None:
+                    (expect_hash_type, expect_hash_value) = self.file_hash_info
+                    hash_value = get_hash(self.file_save_path, expect_hash_type)
+                    if hash_value != expect_hash_value:
+                        print "%s is not match expect hash: %s" % (hash_value, expect_hash_value)
+                    else:
+                        print hash_value
                 else:
-                    print hash_value
+                    print get_hash(self.file_save_path, "md5")
             else:
-                print get_hash(self.file_save_path, "md5")
+                if not self.pause_flag:
+                    remove_directory(self.temp_save_dir)
+                    print "Download stop!"
+                else:
+                    print "Pause stop!"
         else:
             print "File size of %s is 0" % (self.file_url)
+            
+    def stop(self, pause_flag=False):
+        self.stop_flag = True
+        self.pause_flag = pause_flag
+        
+        print "Stop FetchFile: %s" % self.file_save_name
+        for greenlet in self.greenlet_dict.values():
+            if not greenlet.ready():
+                greenlet.kill()
+            
+        self.pool.kill()    
             
     def get_download_pieces(self):
         if os.path.exists(self.temp_save_dir):
@@ -360,6 +383,8 @@ class FetchFiles(object):
         self.file_save_dir = file_save_dir
         self.concurrent_num = concurrent_num
         
+        self.greenlet_dict = {}
+        self.fetch_file_dict = {}
         self.total_size = 0
         
     def start(self):
@@ -370,7 +395,20 @@ class FetchFiles(object):
             file_infos = zip(self.file_urls, self.file_hash_infos)
         [self.start_greenlet(file_info) for file_info in file_infos]
         self.pool.join()
-    
+        
+    def stop(self, pause_flag=False):
+        print "Stop FetchFiles: %s" % self.file_urls
+        for fetch_file in self.fetch_file_dict.values():
+            fetch_file.stop(pause_flag)
+        
+        for greenlet in self.greenlet_dict.values():
+            greenlet.kill()
+            
+        self.pool.kill()    
+        
+    def pause(self):
+        self.stop(True)
+        
     def start_greenlet(self, (file_url, file_hash_info)):
         fetch_file = FetchFile(
             file_url=file_url,
@@ -383,10 +421,57 @@ class FetchFiles(object):
         self.total_size += fetch_file.file_size
         
         greenlet = Greenlet(lambda f: f.start(), fetch_file)
+        
+        self.fetch_file_dict[file_url] = fetch_file
+        self.greenlet_dict[file_url] = greenlet
         self.pool.start(greenlet)
         
     def update(self, file_save_name, update_info):
-        print "%s: %s" % (file_save_name, update_info)
+        print "%s: %s" % (time.time(), file_save_name)
+        # print "%s: %s" % (file_save_name, update_info)
+        pass
+        
+class FetchService(object):
+    '''
+    class docs
+    '''
+	
+    def __init__(self, concurrent_num):
+        '''
+        init docs
+        '''
+        self.concurrent_num = concurrent_num
+        self.signal = Queue()
+        self.pool = Pool(self.concurrent_num)
+        self.fetch_dict = {}
+        
+    def add_fetch(self, fetch_files):
+        self.signal.put(("add", fetch_files))
+    
+    def stop_fetch(self, fetch_files):
+        self.signal.put(("stop", fetch_files))
+
+    def pause_fetch(self, fetch_files):
+        self.signal.put(("pause", fetch_files))
+    
+    def run(self):
+        (action, fetch_files) = self.signal.get()
+        if action == "add":
+            print "*** Add: %s" % (fetch_files)
+            self.fetch_dict[fetch_files] = Greenlet(lambda : fetch_files.start())
+            self.pool.start(self.fetch_dict[fetch_files])
+        elif action == "stop":
+            print "***** Stop: %s (%s)" % (fetch_files, time.time())
+            if self.fetch_dict.has_key(fetch_files):
+                fetch_files.stop()
+                self.fetch_dict.pop(fetch_files)
+        elif action == "pause":
+            print "***** Pause: %s (%s)" % (fetch_files, time.time())
+            if self.fetch_dict.has_key(fetch_files):
+                fetch_files.pause()
+                self.fetch_dict.pop(fetch_files)
+        
+        self.run()
         
 if __name__ == "__main__":
     FetchFiles([
