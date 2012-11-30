@@ -88,6 +88,9 @@ class FetchFile(object):
         
         self.signal = EventRegister()
         
+    def init_file_size(self):    
+        self.file_size = self.fetch.get_file_size()
+        
     def get_fetch(self):
         url = urlparse.urlparse(self.file_url)
         if url[0] == "http":
@@ -114,8 +117,6 @@ class FetchFile(object):
             return ranges
         
     def start(self):
-        self.file_size = self.fetch.get_file_size()
-        
         if self.file_size > 0:
             self.last_byte_index = self.file_size - 1
             
@@ -339,18 +340,56 @@ class FetchFile(object):
         save_file.close()
         
         return begin
-    
-if __name__ == "__main__":
-    fetch_file = FetchFile(
-        # a97d345324a1d673da8a34609767a3f7
-        # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
-        
-        # 0040ce164aae959c36e37febaac1ce80
-        "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb", 
-        
-        # ff7f64c2d829c2a180b6b04ff19b1289
-        # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
-        "/tmp",
-        )
 
-    fetch_file.start()
+class FetchFiles(object):
+    '''
+    class docs
+    '''
+	
+    def __init__(self,
+                 file_urls,
+                 file_hash_infos=None,
+                 file_save_dir=None,
+                 concurrent_num=5,
+                 ):
+        '''
+        init docs
+        '''
+        self.file_urls = file_urls
+        self.file_hash_infos = file_hash_infos
+        self.file_save_dir = file_save_dir
+        self.concurrent_num = concurrent_num
+        
+        self.total_size = 0
+        
+    def start(self):
+        self.pool = Pool(self.concurrent_num)
+        if self.file_hash_infos == None:
+            file_infos = map(lambda file_url: (file_url, None), self.file_urls)
+        else:
+            file_infos = zip(self.file_urls, self.file_hash_infos)
+        [self.start_greenlet(file_info) for file_info in file_infos]
+        self.pool.join()
+    
+    def start_greenlet(self, (file_url, file_hash_info)):
+        fetch_file = FetchFile(
+            file_url=file_url,
+            file_hash_info=file_hash_info,
+            file_save_dir=self.file_save_dir,
+            )
+        fetch_file.signal.register_event("update", lambda update_info: self.update(fetch_file.file_save_name, update_info))
+        fetch_file.init_file_size()
+
+        self.total_size += fetch_file.file_size
+        
+        greenlet = Greenlet(lambda f: f.start(), fetch_file)
+        self.pool.start(greenlet)
+        
+    def update(self, file_save_name, update_info):
+        print "%s: %s" % (file_save_name, update_info)
+        
+if __name__ == "__main__":
+    FetchFiles([
+            "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
+            "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb", 
+            ]).start()
