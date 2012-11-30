@@ -97,7 +97,7 @@ class FetchFile(object):
         
     def get_piece_ranges(self):    
         if self.file_size < self.min_split_size:
-            return [(0, self.file_size - 1)]
+            return [(0, self.last_byte_index)]
         else:
             split_num = self.concurrent_num
             if self.file_size < self.min_split_size * split_num:
@@ -109,7 +109,7 @@ class FetchFile(object):
             for index in xrange(split_num - 1):
                 ranges.append(((index * split_size), (index + 1) * split_size - 1))
                 
-            ranges.append(((split_num - 1) * split_size, self.file_size - 1))
+            ranges.append(((split_num - 1) * split_size, self.last_byte_index))
             
             return ranges
         
@@ -117,6 +117,8 @@ class FetchFile(object):
         self.file_size = self.fetch.get_file_size()
         
         if self.file_size > 0:
+            self.last_byte_index = self.file_size - 1
+            
             create_directory(self.temp_save_dir)
             
             (downloaded_pieces, download_pieces, downloaded_size) = self.get_download_pieces()
@@ -203,8 +205,8 @@ class FetchFile(object):
                         download_tag = end
                         
                         if piece_index == len(downloaded_pieces) - 1:
-                            if download_tag != self.file_size:
-                                need_download_pieces.append((download_tag + 1, self.file_size - 1))
+                            if download_tag != self.last_byte_index:
+                                need_download_pieces.append((download_tag + 1, self.last_byte_index))
                             
                     return (downloaded_pieces, need_download_pieces, downloaded_size)
         else:
@@ -214,7 +216,7 @@ class FetchFile(object):
         if pieces[0][0] != 0:
             return False
         
-        if pieces[-1][1] != self.file_size - 1:
+        if pieces[-1][1] != self.last_byte_index:
             return False
         
         for (index, (start, end)) in enumerate(pieces):
