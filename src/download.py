@@ -133,7 +133,7 @@ class FetchFile(object):
             (downloaded_pieces, download_pieces, downloaded_size) = self.get_download_pieces()
             
             if downloaded_size == self.file_size:
-                print "No need download"
+                self.signal.emit("no-need-fetch")
             else:
                 current_time = time.time()
                 self.update_info = {
@@ -148,8 +148,7 @@ class FetchFile(object):
                     "realtime_size" : 0,
                     }
                 
-                
-                self.signal.emit("start", "total", self.update_info)
+                self.signal.emit("start", self.update_info)
                 
                 for (begin, end) in download_pieces:
                     self.create_greenlet(begin, end)
@@ -157,10 +156,12 @@ class FetchFile(object):
                 [self.pool.start(greenlet) for greenlet in self.greenlet_dict.values()]
                 self.pool.join()
                 
-                print "Finish download, spend seconds: %s (%s)." % (self.update_info["update_time"] - self.update_info["start_time"], 
-                                                                    self.update_info["average_speed"] / 1024)
-                
-            if not self.stop_flag:    
+            if self.stop_flag:
+                remove_directory(self.temp_save_dir)
+                self.signal.emit("stop")
+            elif self.pause_flag:
+                self.signal.emit("pause")
+            else:
                 offset_ids = sorted(map(lambda (start, end): start, downloaded_pieces + download_pieces))
                 command = "cat " + ' '.join(map(lambda offset_id: "%s_%s" % (self.temp_save_path, offset_id), offset_ids)) + " > %s" % self.file_save_path
                 subprocess.Popen(command, shell=True).wait()
@@ -171,25 +172,20 @@ class FetchFile(object):
                     (expect_hash_type, expect_hash_value) = self.file_hash_info
                     hash_value = get_hash(self.file_save_path, expect_hash_type)
                     if hash_value != expect_hash_value:
-                        print "%s is not match expect hash: %s" % (hash_value, expect_hash_value)
-                    else:
-                        print hash_value
+                        self.signal.emit("check-hash-failed", expect_hash_value, hash_value)
+                    else:    
+                        self.signal.emit("finish")
                 else:
-                    print get_hash(self.file_save_path, "md5")
-            else:
-                if not self.pause_flag:
-                    remove_directory(self.temp_save_dir)
-                    print "Download stop!"
-                else:
-                    print "Pause stop!"
+                    self.signal.emit("finish")
         else:
-            print "File size of %s is 0" % (self.file_url)
+            self.signal.emit("get-file-size-failed")
             
     def stop(self, pause_flag=False):
-        self.stop_flag = True
-        self.pause_flag = pause_flag
+        if pause_flag:
+            self.pause_flag = pause_flag
+        else:
+            self.stop_flag = True
         
-        print "Stop FetchFile: %s" % self.file_save_name
         for greenlet in self.greenlet_dict.values():
             if not greenlet.ready():
                 greenlet.kill()
@@ -310,12 +306,12 @@ class FetchFile(object):
         greenlet.info["remain_time"] = remain_size / average_speed
         greenlet.info["realtime_size"] += data_len
         
-        if current_time - greenlet.info["realtime_time"] >= REALTIME_DELAY:
+        if remain_size == 0 or current_time - greenlet.info["realtime_time"] >= REALTIME_DELAY:
             greenlet.info["realtime_speed"] = greenlet.info["realtime_size"] / (current_time - greenlet.info["realtime_time"])
             greenlet.info["realtime_time"] = current_time
             greenlet.info["realtime_size"] = 0
         
-            self.signal.emit("update_greenlet", greenlet.info)
+            self.signal.emit("part_update", greenlet.info)
             
     def update(self, (begin, end)):
         current_time = time.time()
@@ -328,7 +324,7 @@ class FetchFile(object):
         greenlet.info["realtime_time"] = current_time
         greenlet.info["realtime_size"] = 0
         
-        self.signal.emit("start_greenlet", begin, greenlet.info)
+        self.signal.emit("part_start", begin, greenlet.info)
         
         filepath = "%s_%s" % (self.temp_save_path, begin)
         
@@ -339,6 +335,7 @@ class FetchFile(object):
             save_file.write(data)
             data_len = len(data)
             self.update_info["downloaded_size"] += data_len
+            self.update_info["remain_size"] = self.file_size - self.update_info["downloaded_size"]
             
             current_time = time.time()
             self.update_info["average_speed"] = self.update_info["downloaded_size"] / (current_time - self.update_info["start_time"])
@@ -346,7 +343,7 @@ class FetchFile(object):
             self.update_info["remain_time"] = (self.file_size - self.update_info["downloaded_size"]) / self.update_info["average_speed"]            
             self.update_info["realtime_size"] += data_len
             
-            if current_time - greenlet.info["realtime_time"] >= REALTIME_DELAY:
+            if self.update_info["remain_size"] == 0 or current_time - greenlet.info["realtime_time"] >= REALTIME_DELAY:
                 self.update_info["realtime_speed"] = self.update_info["realtime_size"] / (current_time - greenlet.info["realtime_time"])
                 self.update_info["realtime_time"] = current_time
                 self.update_info["realtime_size"] = 0
@@ -398,7 +395,6 @@ class FetchFiles(object):
         self.pool.join()
         
     def stop(self, pause_flag=False):
-        print "Stop FetchFiles: %s" % self.file_urls
         for fetch_file in self.fetch_file_dict.values():
             fetch_file.stop(pause_flag)
         
@@ -416,7 +412,6 @@ class FetchFiles(object):
             file_hash_info=file_hash_info,
             file_save_dir=self.file_save_dir,
             )
-        fetch_file.signal.register_event("update", lambda update_info: self.update(fetch_file.file_save_name, update_info))
         fetch_file.init_file_size()
 
         self.total_size += fetch_file.file_size
@@ -426,11 +421,6 @@ class FetchFiles(object):
         self.fetch_file_dict[file_url] = fetch_file
         self.greenlet_dict[file_url] = greenlet
         self.pool.start(greenlet)
-        
-    def update(self, file_save_name, update_info):
-        print "%s: %s" % (time.time(), file_save_name)
-        # print "%s: %s" % (file_save_name, update_info)
-        pass
         
 class FetchService(object):
     '''
@@ -466,16 +456,13 @@ class FetchService(object):
         else:
             (action, fetch_files) = signal
             if action == "add":
-                print "*** Add: %s" % (fetch_files)
                 self.fetch_dict[fetch_files] = Greenlet(lambda : fetch_files.start())
                 self.pool.start(self.fetch_dict[fetch_files])
             elif action == "stop":
-                print "***** Stop: %s (%s)" % (fetch_files, time.time())
                 if self.fetch_dict.has_key(fetch_files):
                     fetch_files.stop()
                     self.fetch_dict.pop(fetch_files)
             elif action == "pause":
-                print "***** Pause: %s (%s)" % (fetch_files, time.time())
                 if self.fetch_dict.has_key(fetch_files):
                     fetch_files.pause()
                     self.fetch_dict.pop(fetch_files)
