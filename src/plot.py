@@ -115,11 +115,8 @@ class Plot(object):
 
 if __name__ == "__main__":
     from threads import post_gui
-    from download import FetchFile
+    from download import FetchFile, join_glib_loop
     import threading as td
-    import sys
-    import gobject
-    import gevent
     
     @post_gui
     def update_greenlet_plot(plot, value):
@@ -153,9 +150,10 @@ if __name__ == "__main__":
                 # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
                 "/tmp/deepin-desktop-adm64.iso",
                 )
-            fetch_file.signal.register_event("start", lambda axes_id, greenlet_info: self.plot.add_axes(axes_id, greenlet_info))
-            fetch_file.signal.register_event("start_greenlet", lambda axes_id, greenlet_info: self.plot.add_axes(axes_id, greenlet_info))
-            fetch_file.signal.register_event("update_greenlet", lambda v: update_greenlet_plot(self.plot, v))
+            fetch_file.init_file_size()
+            fetch_file.signal.register_event("start", lambda greenlet_info: self.plot.add_axes("total", greenlet_info))
+            fetch_file.signal.register_event("part_start", lambda axes_id, greenlet_info: self.plot.add_axes(axes_id, greenlet_info))
+            fetch_file.signal.register_event("part_update", lambda v: update_greenlet_plot(self.plot, v))
             fetch_file.signal.register_event("update", lambda v: update_plot(self.plot, v))
             fetch_file.start()
     
@@ -165,15 +163,7 @@ if __name__ == "__main__":
     
     TestThread(plot).start()
     
-    def idle():
-        try:
-            gevent.sleep(0.01)
-        except:
-            gtk.main_quit()
-            gevent.hub.MAIN.throw(*sys.exc_info())
-        return True
-    
-    gobject.idle_add(idle)
+    join_glib_loop()
     
     plot.run()
 
