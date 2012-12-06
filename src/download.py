@@ -454,12 +454,17 @@ class FetchService(object):
 
     def pause_fetch(self, fetch_files):
         self.signal.put(("pause", fetch_files))
+        
+    def exit(self):
+        self.signal.put("exit")
     
     def run(self):
-        (action, fetch_files) = self.signal.get()
-        if action == "exit":
+        signal = self.signal.get()
+        
+        if signal == "exit":
             return 
         else:
+            (action, fetch_files) = signal
             if action == "add":
                 print "*** Add: %s" % (fetch_files)
                 self.fetch_dict[fetch_files] = Greenlet(lambda : fetch_files.start())
@@ -488,17 +493,7 @@ class FetchServiceThread(td.Thread):
         '''
         td.Thread.__init__(self)
         self.setDaemon(True)    # make thread exit when main program exit
-        
         self.fetch_service = FetchService(concurrent_num)
-        
-    def add_fetch(self, fetch_files):
-        self.fetch_service.add_fetch(fetch_files)
-        
-    def stop_fetch(self, fetch_files):
-        self.fetch_service.stop_fetch(fetch_files)
-        
-    def pause_fetch(self, fetch_files):
-        self.fetch_service.pause_fetch(fetch_files)
         
     def run(self):
         self.fetch_service.run()
@@ -538,10 +533,10 @@ if __name__ == "__main__":
             "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
             ])
     
-    gobject.timeout_add(2000, lambda : thread.add_fetch(fetch_files_1))
-    gobject.timeout_add(3000, lambda : thread.add_fetch(fetch_files_2))
-    gobject.timeout_add(4000, lambda : thread.stop_fetch(fetch_files_1))
-    gobject.timeout_add(8000, lambda : thread.add_fetch(fetch_files_1))
-    gobject.timeout_add(9000, lambda : thread.pause_fetch(fetch_files_1))
+    gobject.timeout_add(2000, lambda : thread.fetch_service.add_fetch(fetch_files_1))
+    gobject.timeout_add(3000, lambda : thread.fetch_service.add_fetch(fetch_files_2))
+    gobject.timeout_add(4000, lambda : thread.fetch_service.stop_fetch(fetch_files_1))
+    gobject.timeout_add(8000, lambda : thread.fetch_service.add_fetch(fetch_files_1))
+    gobject.timeout_add(9000, lambda : thread.fetch_service.pause_fetch(fetch_files_1))
     
     gtk.main()
