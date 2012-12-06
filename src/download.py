@@ -21,7 +21,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Import gevent module before any other modules.
-import gevent
 from gevent import monkey, Greenlet
 from gevent.pool import Pool
 from gevent.queue import Queue
@@ -30,6 +29,7 @@ monkey.patch_all()
 import commands
 import subprocess
 from events import EventRegister
+import threading as td
 import urlparse
 import time
 from http import FetchHttp
@@ -93,6 +93,9 @@ class FetchFile(object):
         self.stop_flag = False
         self.pause_flag = False
         
+        self.greenlet_dict = {}
+        self.pool = Pool(self.concurrent_num)
+        
     def init_file_size(self):    
         self.file_size = self.fetch.get_file_size()
         
@@ -148,11 +151,9 @@ class FetchFile(object):
                 
                 self.signal.emit("start", "total", self.update_info)
                 
-                self.greenlet_dict = {}
                 for (begin, end) in download_pieces:
                     self.create_greenlet(begin, end)
                     
-                self.pool = Pool(self.concurrent_num)
                 [self.pool.start(greenlet) for greenlet in self.greenlet_dict.values()]
                 self.pool.join()
                 
@@ -456,25 +457,91 @@ class FetchService(object):
     
     def run(self):
         (action, fetch_files) = self.signal.get()
-        if action == "add":
-            print "*** Add: %s" % (fetch_files)
-            self.fetch_dict[fetch_files] = Greenlet(lambda : fetch_files.start())
-            self.pool.start(self.fetch_dict[fetch_files])
-        elif action == "stop":
-            print "***** Stop: %s (%s)" % (fetch_files, time.time())
-            if self.fetch_dict.has_key(fetch_files):
-                fetch_files.stop()
-                self.fetch_dict.pop(fetch_files)
-        elif action == "pause":
-            print "***** Pause: %s (%s)" % (fetch_files, time.time())
-            if self.fetch_dict.has_key(fetch_files):
-                fetch_files.pause()
-                self.fetch_dict.pop(fetch_files)
+        if action == "exit":
+            return 
+        else:
+            if action == "add":
+                print "*** Add: %s" % (fetch_files)
+                self.fetch_dict[fetch_files] = Greenlet(lambda : fetch_files.start())
+                self.pool.start(self.fetch_dict[fetch_files])
+            elif action == "stop":
+                print "***** Stop: %s (%s)" % (fetch_files, time.time())
+                if self.fetch_dict.has_key(fetch_files):
+                    fetch_files.stop()
+                    self.fetch_dict.pop(fetch_files)
+            elif action == "pause":
+                print "***** Pause: %s (%s)" % (fetch_files, time.time())
+                if self.fetch_dict.has_key(fetch_files):
+                    fetch_files.pause()
+                    self.fetch_dict.pop(fetch_files)
+            
+            self.run()
         
-        self.run()
+class FetchServiceThread(td.Thread):
+    '''
+    class docs
+    '''
+	
+    def __init__(self, concurrent_num):
+        '''
+        init docs
+        '''
+        td.Thread.__init__(self)
+        self.setDaemon(True)    # make thread exit when main program exit
+        
+        self.fetch_service = FetchService(concurrent_num)
+        
+    def add_fetch(self, fetch_files):
+        self.fetch_service.add_fetch(fetch_files)
+        
+    def stop_fetch(self, fetch_files):
+        self.fetch_service.stop_fetch(fetch_files)
+        
+    def pause_fetch(self, fetch_files):
+        self.fetch_service.pause_fetch(fetch_files)
+        
+    def run(self):
+        self.fetch_service.run()
+        
+def join_glib_loop():
+    import gtk
+    import gobject
+    import gevent
+    import sys
+    
+    def idle():
+        try:
+            gevent.sleep(0.01)
+        except:
+            gtk.main_quit()
+            gevent.hub.MAIN.throw(*sys.exc_info())
+        return True
+    
+    gobject.idle_add(idle)
         
 if __name__ == "__main__":
-    FetchFiles([
+    import gtk
+    import gobject
+    
+    gtk.gdk.threads_init()
+    
+    thread = FetchServiceThread(5)
+    thread.start()
+    
+    join_glib_loop()
+    
+    fetch_files_1 = FetchFiles([
+            "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb",
+            ])
+    
+    fetch_files_2 = FetchFiles([
             "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
-            "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb", 
-            ]).start()
+            ])
+    
+    gobject.timeout_add(2000, lambda : thread.add_fetch(fetch_files_1))
+    gobject.timeout_add(3000, lambda : thread.add_fetch(fetch_files_2))
+    gobject.timeout_add(4000, lambda : thread.stop_fetch(fetch_files_1))
+    gobject.timeout_add(8000, lambda : thread.add_fetch(fetch_files_1))
+    gobject.timeout_add(9000, lambda : thread.pause_fetch(fetch_files_1))
+    
+    gtk.main()
