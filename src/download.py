@@ -385,7 +385,14 @@ class FetchFiles(object):
         self.fetch_file_dict = {}
         self.total_size = 0
         
+        self.signal = EventRegister()
+        
+        self.downloaded_size = 0
+        self.update_time = -1
+        
     def start(self):
+        self.signal.emit("start")
+        
         self.pool = Pool(self.concurrent_num)
         if self.file_hash_infos == None:
             file_infos = map(lambda file_url: (file_url, None), self.file_urls)
@@ -393,6 +400,8 @@ class FetchFiles(object):
             file_infos = zip(self.file_urls, self.file_hash_infos)
         [self.start_greenlet(file_info) for file_info in file_infos]
         self.pool.join()
+        
+        self.signal.emit("finish")
         
     def stop(self, pause_flag=False):
         for fetch_file in self.fetch_file_dict.values():
@@ -403,8 +412,34 @@ class FetchFiles(object):
             
         self.pool.kill()    
         
+        if pause_flag:
+            self.signal.emit("pause")
+        else:
+            self.signal.emit("stop")
+        
     def pause(self):
         self.stop(True)
+        
+    def update(self, update_info):
+        current_time = time.time()
+        
+        if current_time - self.update_time > 1:
+            downloaded_size = 0
+            for fetch_file in self.fetch_file_dict.values():
+                if hasattr(fetch_file, "update_info"):
+                    downloaded_size += fetch_file.update_info["downloaded_size"]
+                    
+            if self.update_time == -1:
+                speed = 0
+            else:
+                speed = float(downloaded_size - self.downloaded_size) / (current_time - self.update_time)
+                
+            self.update_time = current_time
+            self.downloaded_size = downloaded_size    
+                    
+            self.signal.emit("update", 
+                             (float(self.downloaded_size) / self.total_size) * 100, 
+                             int(speed))
         
     def start_greenlet(self, (file_url, file_hash_info)):
         fetch_file = FetchFile(
@@ -413,6 +448,7 @@ class FetchFiles(object):
             file_save_dir=self.file_save_dir,
             )
         fetch_file.init_file_size()
+        fetch_file.signal.register_event("update", self.update)
 
         self.total_size += fetch_file.file_size
         
@@ -503,7 +539,7 @@ def join_glib_loop():
         
 if __name__ == "__main__":
     import gtk
-    import gobject
+    # import gobject
     
     gtk.gdk.threads_init()
     
@@ -513,17 +549,20 @@ if __name__ == "__main__":
     join_glib_loop()
     
     fetch_files_1 = FetchFiles([
-            "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb",
+            "ftp://ftp.sjtu.edu.cn/ubuntu-cd/quantal/wubi.exe",
+            # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
+            # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb",
             ])
     
     fetch_files_2 = FetchFiles([
             "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
             ])
     
-    gobject.timeout_add(2000, lambda : thread.fetch_service.add_fetch(fetch_files_1))
-    gobject.timeout_add(3000, lambda : thread.fetch_service.add_fetch(fetch_files_2))
-    gobject.timeout_add(4000, lambda : thread.fetch_service.stop_fetch(fetch_files_1))
-    gobject.timeout_add(8000, lambda : thread.fetch_service.add_fetch(fetch_files_1))
-    gobject.timeout_add(9000, lambda : thread.fetch_service.pause_fetch(fetch_files_1))
+    thread.fetch_service.add_fetch(fetch_files_1)
+    # gobject.timeout_add(2000, lambda : thread.fetch_service.add_fetch(fetch_files_1))
+    # gobject.timeout_add(3000, lambda : thread.fetch_service.add_fetch(fetch_files_2))
+    # gobject.timeout_add(4000, lambda : thread.fetch_service.stop_fetch(fetch_files_1))
+    # gobject.timeout_add(8000, lambda : thread.fetch_service.add_fetch(fetch_files_1))
+    # gobject.timeout_add(9000, lambda : thread.fetch_service.pause_fetch(fetch_files_1))
     
     gtk.main()
