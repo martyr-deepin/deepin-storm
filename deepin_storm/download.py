@@ -56,6 +56,7 @@ class FetchFile(object):
                  concurrent_num=5,
                  buffer_size=8192, # in byte
                  min_split_size=20480, # in byte
+                 file_size=None
                  ):
         '''
         init docs
@@ -95,6 +96,9 @@ class FetchFile(object):
         
         self.greenlet_dict = {}
         self.pool = Pool(self.concurrent_num)
+        
+        if file_size:
+            self.file_size = file_size
         
     def init_file_size(self):    
         self.file_size = self.fetch.get_file_size()
@@ -385,6 +389,9 @@ class FetchFiles(object):
         self.fetch_file_dict = {}
         self.total_size = 0
         
+        self.fetch_size_greenlet_dict = {}
+        self.fetch_size_dict = {}
+        
         self.signal = EventRegister()
         
         self.downloaded_size = 0
@@ -393,6 +400,12 @@ class FetchFiles(object):
     def start(self):
         self.signal.emit("start")
         
+        # Fetch file size.
+        self.fetch_size_pool = Pool(self.concurrent_num)
+        [self.start_fetch_size_greenlet(file_url) for file_url in self.file_urls]
+        self.fetch_size_pool.join()
+        
+        # Fetch file.
         self.pool = Pool(self.concurrent_num)
         if self.file_hash_infos == None:
             file_infos = map(lambda file_url: (file_url, None), self.file_urls)
@@ -404,6 +417,11 @@ class FetchFiles(object):
         self.signal.emit("finish")
         
     def stop(self, pause_flag=False):
+        for greenlet in self.fetch_size_greenlet_dict.values():
+            greenlet.kill()
+            
+        self.fetch_size_pool.kill()    
+        
         for fetch_file in self.fetch_file_dict.values():
             fetch_file.stop(pause_flag)
         
@@ -435,7 +453,7 @@ class FetchFiles(object):
                 speed = float(downloaded_size - self.downloaded_size) / (current_time - self.update_time)
                 
             self.update_time = current_time
-            self.downloaded_size = downloaded_size    
+            self.downloaded_size = downloaded_size
                     
             self.signal.emit("update", 
                              (float(self.downloaded_size) / self.total_size) * 100, 
@@ -446,17 +464,28 @@ class FetchFiles(object):
             file_url=file_url,
             file_hash_info=file_hash_info,
             file_save_dir=self.file_save_dir,
+            file_size=self.fetch_size_dict[file_url].file_size,
             )
-        fetch_file.init_file_size()
         fetch_file.signal.register_event("update", self.update)
-
-        self.total_size += fetch_file.file_size
         
         greenlet = Greenlet(lambda f: f.start(), fetch_file)
         
         self.fetch_file_dict[file_url] = fetch_file
         self.greenlet_dict[file_url] = greenlet
         self.pool.start(greenlet)
+        
+    def fetch_file_size(self, fetch_file):
+        fetch_file.init_file_size()
+        
+        self.total_size += fetch_file.file_size
+        
+    def start_fetch_size_greenlet(self, file_url):
+        fetch_file = FetchFile(file_url=file_url)
+        
+        greenlet = Greenlet(self.fetch_file_size, fetch_file)
+        self.fetch_size_dict[file_url] = fetch_file        
+        self.fetch_size_greenlet_dict[file_url] = greenlet
+        self.fetch_size_pool.start(greenlet)
         
 class FetchService(object):
     '''
