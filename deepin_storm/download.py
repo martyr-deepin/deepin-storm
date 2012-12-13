@@ -225,6 +225,7 @@ class FetchFile(object):
                     download_tag = 0
                     for (piece_index, (start, end)) in enumerate(downloaded_pieces):
                         if start != download_tag:
+                            # FIXME, this got 416 Bug
                             need_download_pieces.append((download_tag + 1, start - 1))
                             
                         download_tag = end
@@ -375,6 +376,7 @@ class FetchFiles(object):
                  file_urls,
                  file_hash_infos=None,
                  file_save_dir=None,
+                 file_sizes=None,
                  concurrent_num=5,
                  ):
         '''
@@ -383,6 +385,7 @@ class FetchFiles(object):
         self.file_urls = file_urls
         self.file_hash_infos = file_hash_infos
         self.file_save_dir = file_save_dir
+        self.file_sizes = file_sizes
         self.concurrent_num = concurrent_num
         
         self.greenlet_dict = {}
@@ -391,19 +394,29 @@ class FetchFiles(object):
         
         self.fetch_size_greenlet_dict = {}
         self.fetch_size_dict = {}
+        self.size_dict = {}
         
         self.signal = EventRegister()
         
         self.downloaded_size = 0
         self.update_time = -1
         
+        self.fetch_size_pool = None
+        self.pool = None
+        
     def start(self):
         self.signal.emit("start")
         
         # Fetch file size.
-        self.fetch_size_pool = Pool(self.concurrent_num)
-        [self.start_fetch_size_greenlet(file_url) for file_url in self.file_urls]
-        self.fetch_size_pool.join()
+        if self.file_sizes:
+            for (file_url, file_size) in zip(self.file_urls, self.file_sizes):
+                self.size_dict[file_url] = file_size
+            
+            self.total_size = sum(self.file_sizes)
+        else:
+            self.fetch_size_pool = Pool(self.concurrent_num)
+            [self.start_fetch_size_greenlet(file_url) for file_url in self.file_urls]
+            self.fetch_size_pool.join()
         
         # Fetch file.
         self.pool = Pool(self.concurrent_num)
@@ -420,7 +433,8 @@ class FetchFiles(object):
         for greenlet in self.fetch_size_greenlet_dict.values():
             greenlet.kill()
             
-        self.fetch_size_pool.kill()    
+        if self.fetch_size_pool:    
+            self.fetch_size_pool.kill()    
         
         for fetch_file in self.fetch_file_dict.values():
             fetch_file.stop(pause_flag)
@@ -428,7 +442,8 @@ class FetchFiles(object):
         for greenlet in self.greenlet_dict.values():
             greenlet.kill()
             
-        self.pool.kill()    
+        if self.pool:    
+            self.pool.kill()    
         
         if pause_flag:
             self.signal.emit("pause")
@@ -464,7 +479,7 @@ class FetchFiles(object):
             file_url=file_url,
             file_hash_info=file_hash_info,
             file_save_dir=self.file_save_dir,
-            file_size=self.fetch_size_dict[file_url].file_size,
+            file_size=self.size_dict[file_url],
             )
         fetch_file.signal.register_event("update", self.update)
         
@@ -476,6 +491,7 @@ class FetchFiles(object):
         
     def fetch_file_size(self, fetch_file):
         fetch_file.init_file_size()
+        self.size_dict[fetch_file.file_url] = fetch_file.file_size
         
         self.total_size += fetch_file.file_size
         
