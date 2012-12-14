@@ -61,7 +61,7 @@ class FetchHttp(object):
         request = urllib2.Request(self.file_url)
         request.add_header("Range", "bytes=%d-%d" % (begin, end))
         conn = urllib2.urlopen(request, timeout=10)
-        
+            
         # Start download.
         while True:
             if retries > 10:
@@ -84,7 +84,7 @@ class FetchHttp(object):
                 # Drop received data when greenlet killed.
                 break
             except Exception, e:
-                print "Retries: %s: %s (%s)" % (begin, retries, e)
+                print "Retries: %s(%s): %s (%s)" % (self.file_url, begin, retries, e)
                 traceback.print_exc(file=sys.stdout)
                 
                 retries += 1

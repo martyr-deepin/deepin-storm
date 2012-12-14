@@ -114,11 +114,15 @@ class FetchFile(object):
         if self.file_size < self.min_split_size:
             return [(0, self.last_byte_index)]
         else:
-            split_num = self.concurrent_num
-            if self.file_size < self.min_split_size * split_num:
+            if self.file_size < self.min_split_size * self.concurrent_num:
+                (split_num, remainder) = divmod(self.file_size, self.min_split_size)
+                if remainder != 0:
+                    split_num += 1
+                    
                 split_size = self.min_split_size
             else:
-                split_size = self.file_size / split_num
+                split_num = self.concurrent_num
+                split_size = int(self.file_size / split_num)
                 
             ranges = []
             for index in xrange(split_num - 1):
@@ -135,6 +139,7 @@ class FetchFile(object):
             create_directory(self.temp_save_dir)
             
             (downloaded_pieces, download_pieces, downloaded_size) = self.get_download_pieces()
+            self.check_download_pieces(download_pieces)
             
             if downloaded_size == self.file_size:
                 self.signal.emit("no-need-fetch")
@@ -196,6 +201,15 @@ class FetchFile(object):
             
         self.pool.kill()    
             
+    def check_download_pieces(self, download_pieces):
+        for (begin, end) in download_pieces:
+            if begin > end:
+                raise Exception, "begin bigger than end: %s-%s %s" % (begin, end, self.file_url) 
+            elif begin >= self.file_size:
+                raise Exception, "begin bigger than size: %s %s %s" % (begin, self.file_size, self.file_url)
+            elif end >= self.file_size:
+                raise Exception, "end bigger than size: %s %s %s" % (end, self.file_size, self.file_url)
+        
     def get_download_pieces(self):
         if os.path.exists(self.temp_save_dir):
             downloaded_size = 0
@@ -222,17 +236,20 @@ class FetchFile(object):
                     return ([], downloaded_pieces, self.file_size)
                 else:
                     need_download_pieces = []
-                    download_tag = 0
+                    
                     for (piece_index, (start, end)) in enumerate(downloaded_pieces):
-                        if start != download_tag:
-                            # FIXME, this got 416 Bug
-                            need_download_pieces.append((download_tag + 1, start - 1))
-                            
-                        download_tag = end
-                        
-                        if piece_index == len(downloaded_pieces) - 1:
-                            if download_tag != self.last_byte_index:
-                                need_download_pieces.append((download_tag + 1, self.last_byte_index))
+                        if piece_index == 0:
+                            if start != 0:
+                                need_download_pieces.append((0, start - 1))
+                        elif piece_index == len(downloaded_pieces) - 1:
+                            if end != self.last_byte_index:
+                                need_download_pieces.append((end + 1, self.last_byte_index))
+                        else:
+                            if piece_index > 0:
+                                prev_end = downloaded_pieces[piece_index - 1][1]
+                                
+                                if prev_end + 1 != start:
+                                    need_download_pieces.append((prev_end + 1, start - 1))
                             
                     return (downloaded_pieces, need_download_pieces, downloaded_size)
         else:
