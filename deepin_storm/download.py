@@ -421,6 +421,8 @@ class FetchFiles(object):
         self.fetch_size_pool = None
         self.pool = None
         
+        self.stop_or_pause = False
+        
     def start(self):
         self.signal.emit("start")
         
@@ -444,9 +446,12 @@ class FetchFiles(object):
         [self.start_greenlet(file_info) for file_info in file_infos]
         self.pool.join()
         
-        self.signal.emit("finish")
+        if not self.stop_or_pause:
+            self.signal.emit("finish")
         
     def stop(self, pause_flag=False):
+        self.stop_or_pause = True
+        
         for greenlet in self.fetch_size_greenlet_dict.values():
             greenlet.kill()
             
