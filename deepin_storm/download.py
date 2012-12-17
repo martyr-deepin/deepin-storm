@@ -538,16 +538,28 @@ class FetchService(object):
         self.signal = Queue()
         self.pool = Pool(self.concurrent_num)
         self.fetch_dict = {}
+        self.request_fetch_list = []
         
     def add_fetch(self, fetch_files):
-        self.signal.put(("add", fetch_files))
+        self.request_fetch_list.append(fetch_files)
+        self.signal.put("add")
     
     def stop_fetch(self, fetch_files):
-        self.signal.put(("stop", fetch_files))
-
+        if self.fetch_dict.has_key(fetch_files):
+            fetch_files.stop()
+            self.fetch_dict.pop(fetch_files)
+            
+        if fetch_files in self.request_fetch_list:
+            self.request_fetch_list.remove(fetch_files)
+            
     def pause_fetch(self, fetch_files):
-        self.signal.put(("pause", fetch_files))
-        
+        if self.fetch_dict.has_key(fetch_files):
+            fetch_files.pause()
+            self.fetch_dict.pop(fetch_files)
+            
+        if fetch_files in self.request_fetch_list:
+            self.request_fetch_list.remove(fetch_files)
+            
     def exit(self):
         self.signal.put("exit")
     
@@ -556,20 +568,17 @@ class FetchService(object):
         
         if signal == "exit":
             return 
-        else:
-            (action, fetch_files) = signal
-            if action == "add":
+        elif signal == "add":
+            if len(self.request_fetch_list) > 0:
+                fetch_files = self.request_fetch_list[0]
+                self.request_fetch_list = self.request_fetch_list[1::]
+                
                 self.fetch_dict[fetch_files] = Greenlet(lambda : fetch_files.start())
                 self.pool.start(self.fetch_dict[fetch_files])
-            elif action == "stop":
-                if self.fetch_dict.has_key(fetch_files):
-                    fetch_files.stop()
-                    self.fetch_dict.pop(fetch_files)
-            elif action == "pause":
-                if self.fetch_dict.has_key(fetch_files):
-                    fetch_files.pause()
-                    self.fetch_dict.pop(fetch_files)
-            
+                
+                if len(self.request_fetch_list) > 0:
+                    self.signal.put("add")
+                    
             self.run()
         
 class FetchServiceThread(td.Thread):
