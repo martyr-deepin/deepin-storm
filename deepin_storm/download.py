@@ -21,10 +21,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Import gevent module before any other modules.
-from gevent import monkey, Greenlet
+from patch import gevent_patch
+gevent_patch()
+
+from gevent import Greenlet
 from gevent.pool import Pool
 from gevent.queue import Queue
-monkey.patch_all()
 
 import commands
 import subprocess

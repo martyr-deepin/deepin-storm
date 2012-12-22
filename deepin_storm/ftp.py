@@ -21,8 +21,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Import gevent module before any other modules.
-from gevent import monkey, GreenletExit
-monkey.patch_all()
+from patch import gevent_patch
+gevent_patch()
+
+from gevent import GreenletExit
 
 from ftplib import FTP
 import traceback
