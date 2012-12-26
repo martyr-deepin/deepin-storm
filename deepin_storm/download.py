@@ -99,7 +99,7 @@ class FetchFile(object):
         self.greenlet_dict = {}
         self.pool = Pool(self.concurrent_num)
         
-        if file_size:
+        if file_size != None:
             self.file_size = file_size
         
     def init_file_size(self):    
