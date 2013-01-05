@@ -21,12 +21,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Import gevent module before any other modules.
-from patch import gevent_patch
-gevent_patch()
+from gevent import monkey
+monkey.patch_all
 
+import gevent
 from gevent import Greenlet
 from gevent.pool import Pool
-from gevent.queue import Queue
 
 import commands
 import subprocess
@@ -199,8 +199,8 @@ class FetchFile(object):
         
         for greenlet in self.greenlet_dict.values():
             if not greenlet.ready():
-                greenlet.kill()
-            
+                greenlet.kill(block=False)
+                
         self.pool.kill()    
             
     def check_download_pieces(self, download_pieces):
@@ -294,28 +294,6 @@ class FetchFile(object):
     def finish(self, greenlet):
         # Mark download completed.
         greenlet.info["status"] = STATUS_FINISH
-        
-    def helper_other_greenlet(self):    
-        '''
-        I found use below code in function `finish` will make download slower.
-        '''
-        # Try help other greenlet.
-        status_list = map(lambda greenlet: (greenlet.info["status"], greenlet), self.greenlet_dict.values())    
-        downloading_infos = filter(lambda (status, greenlet): status == STATUS_DOWNLOADING, status_list)
-        waiting_infos = filter(lambda (status, greenlet): status == STATUS_WAITING, status_list)
-        
-        if len(downloading_infos) > 0 and self.concurrent_num - len(downloading_infos) > len(waiting_infos):
-            slowest_greenlet = sorted(downloading_infos, key=lambda (status, greenlet): int(greenlet.info["remain_time"]), reverse=True)[0][1]
-            if slowest_greenlet.info["remain_time"] > 5:
-                slowest_greenlet.kill()
-                
-                info = slowest_greenlet.info
-                remain_begin = info["id"] + info["range_size"] - info["remain_size"]
-                remain_split = remain_begin + int(info["remain_size"] / 2)
-                remain_end = remain_begin + info["remain_size"] 
-                
-                self.pool.start(self.create_greenlet(remain_begin, remain_split))
-                self.pool.start(self.create_greenlet(remain_split + 1, remain_end))
         
     def update_greenlet(self, begin, data):
         data_len = len(data)
@@ -455,7 +433,8 @@ class FetchFiles(object):
         self.stop_or_pause = True
         
         for greenlet in self.fetch_size_greenlet_dict.values():
-            greenlet.kill()
+            if not greenlet.ready():
+                greenlet.kill(block=False)
             
         if self.fetch_size_pool:    
             self.fetch_size_pool.kill()    
@@ -464,7 +443,8 @@ class FetchFiles(object):
             fetch_file.stop(pause_flag)
         
         for greenlet in self.greenlet_dict.values():
-            greenlet.kill()
+            if not greenlet.ready():
+                greenlet.kill(block=False)
             
         if self.pool:    
             self.pool.kill()    
@@ -527,62 +507,6 @@ class FetchFiles(object):
         self.fetch_size_greenlet_dict[file_url] = greenlet
         self.fetch_size_pool.start(greenlet)
         
-class FetchService(object):
-    '''
-    class docs
-    '''
-	
-    def __init__(self, concurrent_num):
-        '''
-        init docs
-        '''
-        self.concurrent_num = concurrent_num
-        self.signal = Queue()
-        self.pool = Pool(self.concurrent_num)
-        self.fetch_dict = {}
-        self.request_fetch_list = []
-        
-    def add_fetch(self, fetch_files):
-        self.request_fetch_list.append(fetch_files)
-        self.signal.put("add")
-    
-    def stop_fetch(self, fetch_files):
-        if self.fetch_dict.has_key(fetch_files):
-            fetch_files.stop()
-            self.fetch_dict.pop(fetch_files)
-            
-        if fetch_files in self.request_fetch_list:
-            self.request_fetch_list.remove(fetch_files)
-            
-    def pause_fetch(self, fetch_files):
-        if self.fetch_dict.has_key(fetch_files):
-            fetch_files.pause()
-            self.fetch_dict.pop(fetch_files)
-            
-        if fetch_files in self.request_fetch_list:
-            self.request_fetch_list.remove(fetch_files)
-            
-    def exit(self):
-        self.signal.put("exit")
-    
-    def run(self):
-        signal = self.signal.get()
-        
-        if signal == "exit":
-            return 
-        elif signal == "add":
-            if len(self.request_fetch_list) > 0:
-                fetch_files = self.request_fetch_list[0]
-                self.request_fetch_list = self.request_fetch_list[1::]
-                
-                self.fetch_dict[fetch_files] = Greenlet(lambda : fetch_files.start())
-                self.pool.start(self.fetch_dict[fetch_files])
-                
-                if len(self.request_fetch_list) > 0:
-                    self.signal.put("add")
-                    
-            self.run()
-        
 class FetchServiceThread(td.Thread):
     '''
     class docs
@@ -594,10 +518,52 @@ class FetchServiceThread(td.Thread):
         '''
         td.Thread.__init__(self)
         self.setDaemon(True)    # make thread exit when main program exit
-        self.fetch_service = FetchService(concurrent_num)
+        
+        self.exit = False
+        self.concurrent_num = concurrent_num
+        
+        self.greenlet_dict = {}
+        self.request_list = []
+        
+    def watcher(self):
+        while not self.exit:
+            gevent.sleep(0.001)
+
+            if len(self.request_list) > 0:
+                fetch_files = self.request_list[0]
+                self.request_list = self.request_list[1::]                
+                
+                greenlet = Greenlet(lambda : fetch_files.start())
+                self.greenlet_dict[fetch_files] = greenlet
+                self.pool.start(greenlet)
         
     def run(self):
-        self.fetch_service.run()
+        self.pool = Pool(self.concurrent_num)
+        self.pool.start(Greenlet(lambda : self.watcher()))
+        
+        self.pool.join()
+            
+    def add_fetch(self, fetch_files):
+        self.request_list.append(fetch_files)
+    
+    def stop_fetch(self, fetch_files):
+        if self.greenlet_dict.has_key(fetch_files):
+            fetch_files.stop()
+            self.greenlet_dict.pop(fetch_files)
+            
+        if fetch_files in self.request_list:
+            self.request_list.remove(fetch_files)
+    
+    def pause_fetch(self, fetch_files):
+        if self.greenlet_dict.has_key(fetch_files):
+            fetch_files.pause()
+            self.greenlet_dict.pop(fetch_files)
+            
+        if fetch_files in self.request_list:
+            self.request_list.remove(fetch_files)
+    
+    def exit(self):
+        self.exit = True
         
 def join_glib_loop():
     import gtk
@@ -617,7 +583,6 @@ def join_glib_loop():
         
 if __name__ == "__main__":
     import gtk
-    # import gobject
     
     gtk.gdk.threads_init()
     
@@ -626,15 +591,41 @@ if __name__ == "__main__":
     
     join_glib_loop()
     
-    fetch_files_2 = FetchFiles([
-            "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
-            ])
+    def update(percent, speed, fetch_files_id):
+        print "Update: (%s) %s %s" % (fetch_files_id, percent, speed)
+        
+    def finish(fetch_files_id):
+        print "Finish (%s)" % (fetch_files_id)
     
-    thread.fetch_service.add_fetch(fetch_files_2)
-    # gobject.timeout_add(2000, lambda : thread.fetch_service.add_fetch(fetch_files_1))
-    # gobject.timeout_add(3000, lambda : thread.fetch_service.add_fetch(fetch_files_2))
-    # gobject.timeout_add(4000, lambda : thread.fetch_service.stop_fetch(fetch_files_1))
-    # gobject.timeout_add(8000, lambda : thread.fetch_service.add_fetch(fetch_files_1))
-    # gobject.timeout_add(9000, lambda : thread.fetch_service.pause_fetch(fetch_files_1))
+    fetch_files_1 = FetchFiles([
+            "http://10.0.0.6/deepin/pool/main/e/emacs-xwidget/emacs24_1.0-4_amd64.deb",
+            ])
+    fetch_files_1.signal.register_event("update", lambda percent, speed: update(percent, speed, "1"))
+    fetch_files_1.signal.register_event("finish", lambda : finish("1"))
+    
+    fetch_files_2 = FetchFiles([
+            "http://10.0.0.6/deepin/pool/main/e/eric/eric_4.5.6_all.deb",
+            ])
+    fetch_files_2.signal.register_event("update", lambda percent, speed: update(percent, speed, "2"))
+    fetch_files_2.signal.register_event("finish", lambda : finish("2"))
+    
+    fetch_files_3 = FetchFiles([
+            "http://10.0.0.6/deepin/pool/main/e/eioffice-personal/eioffice-personal_2009.sp1-1deepin1_i386.deb",
+            ])
+    fetch_files_3.signal.register_event("update", lambda percent, speed: update(percent, speed, "3"))
+    fetch_files_3.signal.register_event("finish", lambda : finish("3"))
+    
+    fetch_files_4 = FetchFiles([
+            "http://cdimage.linuxdeepin.com/releases/12.06/final/desktop/deepin_12.06_zh-hans_amd64.iso",
+            ])
+    fetch_files_4.signal.register_event("update", lambda percent, speed: update(percent, speed, "4"))
+    fetch_files_4.signal.register_event("finish", lambda : finish("4"))
+    
+    thread.add_fetch(fetch_files_1)
+    thread.add_fetch(fetch_files_2)
+    thread.add_fetch(fetch_files_3)
+    
+    gtk.timeout_add(5000, lambda : thread.add_fetch(fetch_files_4))
+    gtk.timeout_add(10000, lambda : thread.stop_fetch(fetch_files_4))
     
     gtk.main()
