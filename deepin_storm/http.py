@@ -36,15 +36,18 @@ class FetchHttp(object):
     class docs
     '''
 	
-    def __init__(self, file_url):
+    def __init__(self, 
+                 file_url, 
+                 timeout=60):
         '''
         init docs
         '''
         self.file_url = file_url
+        self.timeout = timeout
         
     def get_file_size(self):
         try:
-            conn = urllib2.urlopen(self.file_url, timeout=10)
+            conn = urllib2.urlopen(self.file_url, timeout=self.timeout)
             size = int(conn.info().getheaders("Content-Length")[0])
             conn.close()
             return size
@@ -62,7 +65,7 @@ class FetchHttp(object):
         # Connection.
         request = urllib2.Request(self.file_url)
         request.add_header("Range", "bytes=%d-%d" % (begin, end))
-        conn = urllib2.urlopen(request, timeout=10)
+        conn = urllib2.urlopen(request, timeout=self.timeout)
             
         # Start download.
         while True:
