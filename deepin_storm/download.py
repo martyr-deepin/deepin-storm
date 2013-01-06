@@ -37,7 +37,8 @@ import time
 from http import FetchHttp
 from ftp import FetchFtp
 import os
-from utils import remove_file, create_directory, get_hash, remove_directory
+from deepin_utils.file import remove_file, create_directory, remove_directory
+from deepin_utils.hash import get_hash
 
 STATUS_WAITING = 0
 STATUS_DOWNLOADING = 1
