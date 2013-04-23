@@ -600,7 +600,7 @@ class FetchServiceThread(td.Thread):
     def run(self):
         self.fetch_service.run()
         
-def join_glib_loop():
+def join_glib_loop(sleep_time=0.01):
     import gtk
     import gobject
     import gevent
@@ -608,7 +608,7 @@ def join_glib_loop():
     
     def idle():
         try:
-            gevent.sleep(0.01)
+            gevent.sleep(sleep_time)
         except:
             gtk.main_quit()
             gevent.hub.MAIN.throw(*sys.exc_info())
