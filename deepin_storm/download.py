@@ -103,9 +103,19 @@ class FetchFile(object):
         if file_size != None:
             self.file_size = file_size
         
-    def init_file_size(self):    
-        self.file_size = self.fetch.get_file_size()
+        self.error_flag = False    
+        self.signal.register_event("error", lambda e: self.stop())
         
+    def init_file_size(self):    
+        try:
+            self.file_size = self.fetch.get_file_size()
+        except Exception, e:
+            self.error_flag = True
+        
+            self.signal.emit("error", e)
+            
+            print "**************"
+            
     def get_fetch(self):
         url = urlparse.urlparse(self.file_url)
         if url[0] == "http":
@@ -136,7 +146,7 @@ class FetchFile(object):
             return ranges
         
     def start(self):
-        if self.file_size > 0:
+        if not self.error_flag and self.file_size > 0:
             self.last_byte_index = self.file_size - 1
             
             create_directory(self.temp_save_dir)
@@ -439,18 +449,19 @@ class FetchFiles(object):
             self.fetch_size_pool = Pool(self.concurrent_num)
             [self.start_fetch_size_greenlet(file_url) for file_url in self.file_urls]
             self.fetch_size_pool.join()
-        
-        # Fetch file.
-        self.pool = Pool(self.concurrent_num)
-        if self.file_hash_infos == None:
-            file_infos = map(lambda file_url: (file_url, None), self.file_urls)
-        else:
-            file_infos = zip(self.file_urls, self.file_hash_infos)
-        [self.start_greenlet(file_info) for file_info in file_infos]
-        self.pool.join()
-        
-        if not self.stop_or_pause:
-            self.signal.emit("finish")
+            
+        if not self.error_flag:
+            # Fetch file.
+            self.pool = Pool(self.concurrent_num)
+            if self.file_hash_infos == None:
+                file_infos = map(lambda file_url: (file_url, None), self.file_urls)
+            else:
+                file_infos = zip(self.file_urls, self.file_hash_infos)
+            [self.start_greenlet(file_info) for file_info in file_infos]
+            self.pool.join()
+            
+            if not self.stop_or_pause:
+                self.signal.emit("finish")
         
     def stop(self, pause_flag=False):
         self.stop_or_pause = True

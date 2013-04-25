@@ -145,8 +145,8 @@ if __name__ == "__main__":
                 # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/quantal/wubi.exe",
                 # "http://test.packages.linuxdeepin.com/ubuntu/pool/main/v/vim/vim_7.3.429-2ubuntu2.1_amd64.deb",
                 # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-media-player/deepin-media-player_1+git201209111105_all.deb",
-                # "http://cdimage.linuxdeepin.com/daily-live/desktop/20121124/deepin-desktop-amd64.iso",
-                "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
+                "http://cdimage.linuxdeepin.com/daily-live/desktop/20130420/deepin-desktop-amd64.iso",
+                # "http://test.packages.linuxdeepin.com/deepin/pool/main/d/deepin-emacs/deepin-emacs_1.1-1_all.deb",
                 # "ftp://ftp.sjtu.edu.cn/ubuntu-cd/12.04/ubuntu-12.04.1-alternate-amd64.iso",
                 "/tmp/deepin-desktop-adm64.iso",
                 )

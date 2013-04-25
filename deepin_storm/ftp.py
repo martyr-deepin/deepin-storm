@@ -24,6 +24,7 @@
 from patch import gevent_patch
 gevent_patch()
 
+import gevent
 from gevent import GreenletExit
 
 from ftplib import FTP
@@ -55,10 +56,13 @@ class FetchFtp(object):
             print "get_file_size got error: %s" % e
             traceback.print_exc(file=sys.stdout)
             
+            raise e
+            
             return 0
 
     def download_piece(self, buffer_size, begin, end, update_callback):
         # Init.
+        retries = 1
         remaining = end - begin + 1
         
         # Login.
@@ -76,6 +80,9 @@ class FetchFtp(object):
         conn = ftp.transfercmd("RETR %s" % url[2])
         
         while True:
+            if retries > 10:
+                break
+            
             try:
                 read_size = min(buffer_size, remaining)
                 if read_size <= 0:
@@ -87,9 +94,17 @@ class FetchFtp(object):
                 
                 remaining -= len(data)
                 update_callback(begin, data)
+                retries = 1
             except GreenletExit:
                 # Drop received data when greenlet killed.
                 break
+            except Exception, e:
+                print "Retries: %s(%s): %s (%s)" % (self.file_url, begin, retries, e)
+                traceback.print_exc(file=sys.stdout)
+                
+                retries += 1
+                gevent.sleep(1)
+                continue
             
         # Clean work.
         conn.close()    

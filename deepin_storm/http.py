@@ -55,6 +55,8 @@ class FetchHttp(object):
             print "get_file_size got error: %s" % e
             traceback.print_exc(file=sys.stdout)
             
+            raise e
+            
             return 0
         
     def download_piece(self, buffer_size, begin, end, update_callback):
