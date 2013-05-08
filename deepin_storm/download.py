@@ -435,6 +435,7 @@ class FetchFiles(object):
         self.pool = None
         
         self.stop_or_pause = False
+        self.error_flag = False
         
     def start(self):
         self.signal.emit("start")
