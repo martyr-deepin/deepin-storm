@@ -443,15 +443,10 @@ class FetchFiles(object):
         self.signal.emit("start")
         
         # Fetch file size.
-        if self.file_sizes:
-            for (file_url, file_size) in zip(self.file_urls, self.file_sizes):
-                self.size_dict[file_url] = file_size
-            
-            self.total_size = sum(self.file_sizes)
-        else:
-            self.fetch_size_pool = Pool(self.concurrent_num)
-            [self.start_fetch_size_greenlet(file_url) for file_url in self.file_urls]
-            self.fetch_size_pool.join()
+        self.fetch_size_pool = Pool(self.concurrent_num)
+        for file_url in self.file_urls:
+            self.start_fetch_size_greenlet(file_url) 
+        self.fetch_size_pool.join()
             
         if not self.error_flag:
             # Fetch file.
@@ -533,6 +528,7 @@ class FetchFiles(object):
     def emit_error(self, e):
         self.signal.emit('error', e)
         self.error_flag = True
+        self.stop()
         
     def fetch_file_size(self, fetch_file):
         fetch_file.init_file_size()
