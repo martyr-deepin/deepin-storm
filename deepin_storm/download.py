@@ -96,12 +96,11 @@ class FetchFile(object):
         
         self.stop_flag = False
         self.pause_flag = False
+        self.file_size = file_size
         
         self.greenlet_dict = {}
         self.pool = Pool(self.concurrent_num)
         
-        if file_size != None:
-            self.file_size = file_size
         
         self.error_flag = False    
         self.signal.register_event("error", lambda e: self.stop())
@@ -111,10 +110,9 @@ class FetchFile(object):
             self.file_size = self.fetch.get_file_size()
         except Exception, e:
             self.error_flag = True
+            self.file_size = 0
         
-            self.signal.emit("error", e)
-            
-            print "**************"
+            self.signal.emit("error", str(e))
             
     def get_fetch(self):
         url = urlparse.urlparse(self.file_url)
@@ -146,6 +144,7 @@ class FetchFile(object):
             return ranges
         
     def start(self):
+        self.init_file_size()
         if not self.error_flag and self.file_size > 0:
             self.last_byte_index = self.file_size - 1
             
@@ -387,11 +386,14 @@ class FetchFile(object):
             
             self.update_greenlet(begin, data)
             
-        self.fetch.download_piece(
-            self.buffer_size, 
-            begin,
-            end,
-            update_data)    
+        try:
+            self.fetch.download_piece(
+                self.buffer_size, 
+                begin,
+                end,
+                update_data)    
+        except Exception, e:
+            self.signal.emit("error", e)
         
         save_file.close()
         
@@ -458,10 +460,11 @@ class FetchFiles(object):
                 file_infos = map(lambda file_url: (file_url, None), self.file_urls)
             else:
                 file_infos = zip(self.file_urls, self.file_hash_infos)
-            [self.start_greenlet(file_info) for file_info in file_infos]
+            for file_info in file_infos:
+                self.start_greenlet(file_info)
             self.pool.join()
             
-            if not self.stop_or_pause:
+            if not self.stop_or_pause and not self.error_flag:
                 self.signal.emit("finish")
         
     def stop(self, pause_flag=False):
@@ -519,12 +522,17 @@ class FetchFiles(object):
             file_size=self.size_dict[file_url],
             )
         fetch_file.signal.register_event("update", self.update)
+        fetch_file.signal.register_event("error", self.emit_error)
         
         greenlet = Greenlet(lambda f: f.start(), fetch_file)
         
         self.fetch_file_dict[file_url] = fetch_file
         self.greenlet_dict[file_url] = greenlet
         self.pool.start(greenlet)
+
+    def emit_error(self, e):
+        self.signal.emit('error', e)
+        self.error_flag = True
         
     def fetch_file_size(self, fetch_file):
         fetch_file.init_file_size()

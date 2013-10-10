@@ -53,7 +53,7 @@ class FetchHttp(object):
             return size
         except Exception, e:
             print "get_file_size got error: %s" % e
-            traceback.print_exc(file=sys.stdout)
+            #traceback.print_exc(file=sys.stdout)
             
             raise e
             
