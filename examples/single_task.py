@@ -20,17 +20,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from distutils.core import setup
+import sys
 
-setup(
-    name            = 'deepin-storm',
-    version         = '0.2',
-    description     = 'Python download library and Powerful download manager',
-    long_description= 'Deepin Storm is download library and powerful download manager',
-    author          = 'Alan Leaf',
-    author_email    = 'alan.leaf916@gmail.com',
-    url             = 'https://github.com/linuxdeepin/deepin-storm',
-    license         = 'GPL-3',
-    platforms       = ['all'],
-    packages        = ['deepin_storm']
-    )
+from deepin_storm.tasks import TaskObject
+
+test_ftp = "ftp://ftp.cc.uoc.gr/mirrors/linux/lglive/win32diskimager.zip"
+
+download_task = TaskObject(sys.argv[1], 
+                           verbose=True
+                           )
+
+download_task.run()
+

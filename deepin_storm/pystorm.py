@@ -20,17 +20,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from distutils.core import setup
 
-setup(
-    name            = 'deepin-storm',
-    version         = '0.2',
-    description     = 'Python download library and Powerful download manager',
-    long_description= 'Deepin Storm is download library and powerful download manager',
-    author          = 'Alan Leaf',
-    author_email    = 'alan.leaf916@gmail.com',
-    url             = 'https://github.com/linuxdeepin/deepin-storm',
-    license         = 'GPL-3',
-    platforms       = ['all'],
-    packages        = ['deepin_storm']
-    )
+__all__ = ["common", "events", "fetch", "logger", "report", "services", "state", "tasks", "xdg"]
+
+from . import common
+from . import events
+from . import fetch
+from . import logger
+from . import report
+from . import services
+from . import state
+from . import tasks
+from . import xdg
