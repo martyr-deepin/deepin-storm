@@ -21,8 +21,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys
+sys.path.insert(0, "../")
+
 from deepin_storm.services import FetchService
-from deepin_storm.tasks import TaskObject, MultiTaskObject
+from deepin_storm.tasks import MultiTaskObject
 from deepin_storm.report import parse_bytes, parse_time
 
 # Start fetch services 

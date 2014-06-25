@@ -73,6 +73,13 @@ class TaskObject(EventManager):
                 self.RemoteFetch = fetch
                 break
 
+    def fetch_thread_error_update(self, thread, error_info):
+        if thread in self.fetch_threads:
+            self.fetch_threads.remove(thread)
+
+        if len(self.fetch_threads) == 0:
+            self.emit("error", "%s task occur error with %s" % (self.task_name, error_info), self)
+
     def get_task_id(self):
         pass
         
@@ -200,7 +207,7 @@ class TaskObject(EventManager):
             for i in range(num_connections):
                 current_thread = self.RemoteFetch(i, self.url, part_output_file, state_file, 
                                            start_offset + self.conn_state.progress[i],
-                                           self.conn_state)
+                                           self.conn_state, self)
                 self.fetch_threads.append(current_thread)
                 current_thread.start()
                 start_offset += self.conn_state.chunks[i]

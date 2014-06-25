@@ -35,6 +35,7 @@ from .logger import Logger
 from .constant import BLOCK_SIZE
 from .common import os_open
 from .providers import provider_manager
+from events import event_manager
 
 std_headers = {
     'User-Agent': 'Mozilla/5.0 (Windows; U; Windows NT 6.1; '
@@ -48,7 +49,7 @@ std_headers = {
 
 class BaseFetch(threading.Thread, Logger):
     
-    def __init__(self, name, url, part_output_file, state_file, start_offset, conn_state):
+    def __init__(self, name, url, part_output_file, state_file, start_offset, conn_state, task):
         threading.Thread.__init__(self)
         self.setDaemon(True)
         self.name = name
@@ -57,6 +58,7 @@ class BaseFetch(threading.Thread, Logger):
         self.state_file = state_file
         self.start_offset = start_offset
         self.conn_state = conn_state
+        self._task = task
         self.length = conn_state.chunks[name] - conn_state.progress[name]
         self.sleep_timer = 0
         self.need_to_quit = False
@@ -110,18 +112,15 @@ class HTTPFetch(BaseFetch):
         if self.length == 0:
             return
         
-        self.logdebug("Running thread with %d-%d", self.start_offset, self.length)
-        
         request = urllib2.Request(self.url, None)
         request.add_header('Range', 'bytes=%d-%d' % (self.start_offset,
                                                      self.start_offset + self.length))
         while True:
-            
             try:
-                data = urllib2.urlopen(request)
-                
+                data = urllib2.urlopen(request, timeout=6)
             except urllib2.URLError, u:
-                self.logdebug("Connection %s: did not start with %s", self.name, u)
+                error_info = "Connection %s: did not start with %s" % (self.name, u)
+                self.logerror(error_info)
             else:
                 break
 
@@ -130,7 +129,9 @@ class HTTPFetch(BaseFetch):
         os.lseek(out_fd, self.start_offset, os.SEEK_SET)
 
         #indicates if connection timed out on a try
-        while self.length > 0:
+        try_times = 5
+        _error = ""
+        while try_times > 0 and self.length > 0:
             if self.need_to_quit:
                 return
 
@@ -146,17 +147,23 @@ class HTTPFetch(BaseFetch):
                 data_block = data.read(fetch_size)
                 
                 if len(data_block) == 0:
-                    self.logdebug( "Connection %s: [TESTING]: 0 sized block fetched.", self.name)
+                    self.loginfo( "Connection %s: [TESTING]: 0 sized block fetched.", self.name)
                     
                 block_length = len(data_block)    
                 # if len(data_block) != fetch_size:
-                #     self.logdebug("Connection %s: len(data_block) != fetch_size, but continuing anyway.", self.name)
+                #     self.loginfo("Connection %s: len(data_block) != fetch_size, but continuing anyway.", self.name)
                 #     self.run()
                 #     return
             except socket.timeout, s:
-                self.logdebug("Connection %s timed out with %s", self.name, s)
-                self.run()
-                return
+                _error = "Connection %s timed out with %s" % (self.name, s)
+                self.loginfo(_error)
+                try_times -= 1
+                continue
+            except Exception, e:
+                _error = "Connection %s Unknown error with %s" % (self.name, e)
+                self.loginfo(_error)
+                try_times -= 1
+                continue
 
             self.length -= block_length
             
@@ -164,11 +171,12 @@ class HTTPFetch(BaseFetch):
             os.write(out_fd, data_block)
             self.start_offset += len(data_block)
             self.conn_state.save_state(self.state_file)
-            
+
         os.close(out_fd)    
         data.close()
-        
 
+        if try_times == 0:
+            self._task.fetch_thread_error_update(self, _error)
         
 class FTPFetch(BaseFetch):
 
@@ -196,8 +204,6 @@ class FTPFetch(BaseFetch):
         if self.length == 0:
             return
         
-        self.logdebug("Running thread with %d-%d", self.start_offset, self.length)
-        
         # Login.
         url_parse = urlparse.urlparse(self.url)
         ftp = FTP(url_parse.netloc)
@@ -217,7 +223,9 @@ class FTPFetch(BaseFetch):
         os.lseek(out_fd, self.start_offset, os.SEEK_SET)
 
         #indicates if connection timed out on a try
-        while self.length > 0:
+        try_times = 10
+        _error = ""
+        while try_times > 0 and self.length > 0:
             if self.need_to_quit:
                 return
 
@@ -234,13 +242,14 @@ class FTPFetch(BaseFetch):
                 data_block = conn.recv(fetch_size)
                 
                 if len(data_block) == 0:
-                    self.logdebug( "Connection %s: [TESTING]: 0 sized block fetched.", self.name)
+                    self.loginfo( "Connection %s: [TESTING]: 0 sized block fetched.", self.name)
                     
                 block_length = len(data_block)    
             except socket.timeout, s:
-                self.logdebug("Connection %s timed out with %s", self.name, s)
-                self.run()
-                return
+                _error = s
+                self.loginfo("Connection %s timed out with %s", self.name, s)
+                try_times -= 1
+                continue
 
             self.length -= block_length
             
@@ -252,6 +261,10 @@ class FTPFetch(BaseFetch):
         # Clean work.    
         os.close(out_fd)    
         conn.close()
+
+        if try_times == 0:
+            error_info = "Connection %s error with %s" % (self.name, _error)
+            self._task.emit("error", error_info, self._task)
 
 provider_manager.register("fetch", HTTPFetch)        
 provider_manager.register("fetch", FTPFetch)
