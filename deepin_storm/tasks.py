@@ -237,6 +237,9 @@ class TaskObject(EventManager):
                 self.emit_update()
                 time.sleep(self.update_interval)
 
+            if len(self.fetch_threads) == 0:
+                raise StopExcetion
+
             if self.verbose:
                 self.report_bar.display_progress()
 
@@ -245,6 +248,7 @@ class TaskObject(EventManager):
                 os.unlink(self.output_file)
             except:
                 pass
+
             os.rename(part_output_file, self.output_file)
             self.__finish = True
             self.emit_update()

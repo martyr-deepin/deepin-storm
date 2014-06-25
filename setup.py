@@ -24,7 +24,7 @@ from distutils.core import setup
 
 setup(
     name            = 'deepin-storm',
-    version         = '0.2',
+    version         = '0.3',
     description     = 'Python download library and Powerful download manager',
     long_description= 'Deepin Storm is download library and powerful download manager',
     author          = 'Alan Leaf',
